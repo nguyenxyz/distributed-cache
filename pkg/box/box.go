@@ -75,8 +75,25 @@ func (b *Box) Set(key string, value interface{}) error {
 	return nil
 }
 
+func (b *Box) Delete(key string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if _, found := b.data[key]; found {
+		delete(b.data, key)
+		return nil
+	}
+
+	return NewOperationError(fmt.Sprintf("Item with key %s doesn't exist", key), KeyNotFound)
+}
+
 type Option func(*Box)
 
 func New(options ...Option) *Box {
-	return &Box{}
+	box := &Box{}
+	for _, opt := range options {
+		opt(box)
+	}
+
+	return box
 }
