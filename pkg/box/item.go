@@ -41,6 +41,6 @@ func (i *Item) Metadata() map[string]interface{} {
 	return i.metaData
 }
 
-func (i *Item) isExpired() bool {
+func (i *Item) isTTLExpired() bool {
 	return i.TTL() == 0
 }

@@ -1,7 +1,6 @@
 package box
 
 import (
-	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -9,7 +8,7 @@ import (
 
 type Box struct {
 	// Mutex for thread-safe access to the key-value store
-	mu sync.Mutex
+	mu sync.RWMutex
 
 	// The underlying key-value storage
 	data map[string]*Item
@@ -17,52 +16,30 @@ type Box struct {
 	// Optional: Default time-to-live for items in the key-value store
 	defaultTTL time.Duration
 
-	// Optional: Max capacity of the key-value store
-	maxCapacity int
-
-	// Optional: Eviction strategy for managing key-value store capacity
-	evictStrat EvictionStrategy
-
 	logger log.Logger
 }
 
-func (b *Box) Get(key string) (*Item, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+func (b *Box) Get(key string) *Item {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 
 	item, found := b.data[key]
-	if !found {
-		return &Item{}, NewOperationError(fmt.Sprintf("Item with key %s doesn't exist", key), KeyNotFound)
-	}
-
-	if item.isExpired() {
+	if found && item.isTTLExpired() {
 		delete(b.data, key)
-		return &Item{}, NewOperationError(fmt.Sprintf("Item with key %s has already expired", key), TTLExpired)
+		return nil
 	}
 
-	return item, nil
+	return item
 }
 
 func (b *Box) Set(key string, value interface{}) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	item, found := b.data[key]
-	if found {
-		if !item.isExpired() {
-			item.value = value
-			item.lastUpdated = time.Now()
-			return nil
-		}
-		delete(b.data, key)
-	}
-
-	if len(b.data) > b.maxCapacity && b.maxCapacity > 0 {
-		evictedKey, err := b.evictStrat.Evict(b.data)
-		if err != nil {
-			return NewOperationError(err.Error(), Operational)
-		}
-		delete(b.data, evictedKey)
+	if item, found := b.data[key]; found && !item.isTTLExpired() {
+		item.value = value
+		item.lastUpdated = time.Now()
+		return nil
 	}
 
 	b.data[key] = &Item{
@@ -79,12 +56,8 @@ func (b *Box) Delete(key string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, found := b.data[key]; found {
-		delete(b.data, key)
-		return nil
-	}
-
-	return NewOperationError(fmt.Sprintf("Item with key %s doesn't exist", key), KeyNotFound)
+	delete(b.data, key)
+	return nil
 }
 
 type Option func(*Box)
