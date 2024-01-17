@@ -5,10 +5,10 @@ import "time"
 // Store is the interface for a box object
 type Store interface {
 	// Get returns the value for the given key if found, returns error on failure
-	Get(key string) (Record, error)
+	Get(key string) Record
 
 	// Set sets the value for the given key, returns error on failure
-	Set(key, value string) error
+	Set(key string, value interface{}) error
 
 	// Delete removes the given key if found, returns error on failuer
 	Delete(key string) error
