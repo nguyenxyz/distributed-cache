@@ -28,6 +28,10 @@ func (i *Item) CreationTime() time.Time {
 }
 
 func (i *Item) TTL() time.Duration {
+	if i.setTTL < 0 {
+		return i.setTTL
+	}
+
 	elapsedTime := time.Since(i.creationTime)
 	remainingTime := i.setTTL - elapsedTime
 	if remainingTime < 0 {

@@ -48,6 +48,7 @@ func (b *Box) Set(key string, value interface{}) error {
 		value:        value,
 		lastUpdated:  time.Now(),
 		creationTime: time.Now(),
+		setTTL:       b.defaultTTL,
 	}
 
 	return nil
@@ -63,14 +64,18 @@ func (b *Box) Delete(key string) error {
 
 type Option func(*Box)
 
-func WithTTL(t time.Duration) Option {
+func WithDefaultTTL(t time.Duration) Option {
 	return func(b *Box) {
 		b.defaultTTL = t
 	}
 }
 
 func New(options ...Option) *Box {
-	box := &Box{}
+	box := &Box{
+		data:       make(map[string]*Item),
+		defaultTTL: -1,
+	}
+
 	for _, opt := range options {
 		opt(box)
 	}
