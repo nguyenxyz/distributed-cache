@@ -2,10 +2,10 @@ package box
 
 import (
 	"encoding/json"
-	"log"
 	"net/http"
 
-	rw "github.com/ph-ngn/nanobox/pkg/util/responsewriter"
+	"github.com/ph-ngn/nanobox/pkg/util/log"
+	rw "github.com/ph-ngn/nanobox/pkg/util/response"
 )
 
 type Controller struct {

@@ -1,9 +1,10 @@
 package box
 
 import (
-	"log"
 	"sync"
 	"time"
+
+	"github.com/ph-ngn/nanobox/pkg/util/log"
 )
 
 type Box struct {
@@ -61,6 +62,12 @@ func (b *Box) Delete(key string) error {
 }
 
 type Option func(*Box)
+
+func WithTTL(t time.Duration) Option {
+	return func(b *Box) {
+		b.defaultTTL = t
+	}
+}
 
 func New(options ...Option) *Box {
 	box := &Box{}
