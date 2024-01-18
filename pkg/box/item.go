@@ -8,7 +8,7 @@ type Item struct {
 	lastUpdated  time.Time
 	creationTime time.Time
 	setTTL       time.Duration
-	metaData     map[string]interface{}
+	metadata     map[string]interface{}
 }
 
 func (i *Item) Key() string {
@@ -42,7 +42,7 @@ func (i *Item) TTL() time.Duration {
 }
 
 func (i *Item) Metadata() map[string]interface{} {
-	return i.metaData
+	return i.metadata
 }
 
 func (i *Item) isTTLExpired() bool {

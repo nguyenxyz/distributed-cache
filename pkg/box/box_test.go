@@ -79,7 +79,7 @@ func TestBoxGet(t *testing.T) {
 		t.Run(tc.desc, func(t *testing.T) {
 			item := box.Get(tc.key)
 			if tc.expectedValue == nil && item != nil {
-				t.Fatalf("Expected nil item, got: %v", item)
+				t.Fatalf("Expected nil, got: %v", item)
 			}
 
 			if tc.expectedValue != nil && (item == nil || !reflect.DeepEqual(item.Value(), tc.expectedValue)) {
