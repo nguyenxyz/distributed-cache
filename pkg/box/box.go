@@ -17,6 +17,12 @@ type Box struct {
 	// Optional: Default time-to-live for items in the key-value store
 	defaultTTL time.Duration
 
+	// Optional: Garbage collection interval for removing expired items
+	garbageCollectionInterval time.Duration
+
+	// Channel for signaling the garbage collector to stop
+	stopGarbageCollection chan struct{}
+
 	logger log.Logger
 }
 
@@ -62,22 +68,62 @@ func (b *Box) Delete(key string) error {
 	return nil
 }
 
+func (b *Box) runGarbageCollector() {
+	b.stopGarbageCollection = make(chan struct{})
+	ticker := time.NewTicker(b.garbageCollectionInterval)
+
+	for {
+		select {
+		case <-ticker.C:
+			b.mu.Lock()
+			for k, v := range b.data {
+				if v.isTTLExpired() {
+					delete(b.data, k)
+				}
+			}
+			b.mu.Unlock()
+
+		case <-b.stopGarbageCollection:
+			ticker.Stop()
+			b.stopGarbageCollection = nil
+			return
+		}
+	}
+}
+
+func (b *Box) stopGarbageCollector() {
+	if b.stopGarbageCollection != nil {
+		b.stopGarbageCollection <- struct{}{}
+	}
+}
+
 type Option func(*Box)
 
-func WithDefaultTTL(t time.Duration) Option {
+func WithDefaultTTL(ttl time.Duration) Option {
 	return func(b *Box) {
-		b.defaultTTL = t
+		b.defaultTTL = ttl
+	}
+}
+
+func WithGarbageCollectionInterval(interval time.Duration) Option {
+	return func(b *Box) {
+		b.garbageCollectionInterval = interval
 	}
 }
 
 func New(options ...Option) *Box {
 	box := &Box{
-		data:       make(map[string]*Item),
-		defaultTTL: -1,
+		data:                      make(map[string]*Item),
+		defaultTTL:                -1,
+		garbageCollectionInterval: 30 * time.Minute,
 	}
 
 	for _, opt := range options {
 		opt(box)
+	}
+
+	if box.defaultTTL >= 0 {
+		go box.runGarbageCollector()
 	}
 
 	return box
