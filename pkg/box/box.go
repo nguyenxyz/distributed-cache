@@ -1,6 +1,7 @@
 package box
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -68,10 +69,23 @@ func (b *Box) Delete(key string) error {
 	return nil
 }
 
+func (b *Box) Run(ctx context.Context) {
+	b.logger.Infof("Starting box service with a default TTL of %v", b.defaultTTL)
+	if b.defaultTTL >= 0 {
+		go b.runGarbageCollector()
+		defer b.stopGarbageCollector()
+	}
+
+	defer b.logger.Infof("Shutting down box service")
+
+	<-ctx.Done()
+}
+
 func (b *Box) runGarbageCollector() {
 	b.stopGarbageCollection = make(chan struct{})
 	ticker := time.NewTicker(b.garbageCollectionInterval)
 
+	b.logger.Infof("Starting the garbage collector with interval of %v", b.garbageCollectionInterval)
 	for {
 		select {
 		case <-ticker.C:
@@ -93,6 +107,7 @@ func (b *Box) runGarbageCollector() {
 
 func (b *Box) stopGarbageCollector() {
 	if b.stopGarbageCollection != nil {
+		b.logger.Infof("Shutting down the garbage collector")
 		b.stopGarbageCollection <- struct{}{}
 	}
 }
@@ -120,10 +135,6 @@ func New(options ...Option) *Box {
 
 	for _, opt := range options {
 		opt(box)
-	}
-
-	if box.defaultTTL >= 0 {
-		go box.runGarbageCollector()
 	}
 
 	return box
