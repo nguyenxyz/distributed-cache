@@ -10,7 +10,7 @@ type Store interface {
 	// Set sets the value for the given key, returns error on failure
 	Set(key string, value interface{}) error
 
-	// Delete removes the given key if found, returns error on failuer
+	// Delete removes the given key if found, returns error on failure
 	Delete(key string) error
 }
 

@@ -32,8 +32,7 @@ func (i *Item) TTL() time.Duration {
 		return i.setTTL
 	}
 
-	elapsedTime := time.Since(i.creationTime)
-	remainingTime := i.setTTL - elapsedTime
+	remainingTime := i.setTTL - time.Since(i.creationTime)
 	if remainingTime < 0 {
 		remainingTime = 0
 	}

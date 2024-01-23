@@ -8,7 +8,6 @@
 
 ## Tech roadmap:
 - Raft consensus library: https://github.com/hashicorp/raft?tab=readme-ov-file
-- gRPC: https://grpc.io/
 - OpenTelemetry: https://opentelemetry.io/
 - Zap: https://github.com/uber-go/zap
 - Grafana (Loki + Tempo): https://grafana.com/
@@ -17,7 +16,7 @@
 
 ## Design:
 ### nbox-api-server:
--  Summary: Entry enpoint into the box cluster
+-  Summary: Entry point into the box cluster
 ### box:
 -  Summary: In-memory key-value store
 ### fsm: 

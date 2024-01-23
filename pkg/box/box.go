@@ -126,6 +126,12 @@ func WithGarbageCollectionInterval(interval time.Duration) Option {
 	}
 }
 
+func WithLogger(logger log.Logger) Option {
+	return func(b *Box) {
+		b.logger = logger
+	}
+}
+
 func New(options ...Option) *Box {
 	box := &Box{
 		data:                      make(map[string]*Item),
