@@ -74,6 +74,26 @@ func (fsm *FiniteStateMachine) Delete(key string) error {
 	return fsm.raft.Apply(b, RaftTimeOut).Error()
 }
 
+// Apply applies an event from the log to the finite state machine and is called once a log entry is committed by a majority of the cluster
+func (fsm *FiniteStateMachine) Apply(l *raft.Log) interface{} {
+	var event Event
+	if err := json.Unmarshal(l.Data, &event); err != nil {
+		fsm.logger.Fatalf("Failed to unmarshal an event from the event log: %v", err)
+	}
+
+	switch event.Operation {
+	case "set":
+		return fsm.Store.Set(event.Key, event.Value)
+
+	case "delete":
+		return fsm.Store.Delete(event.Key)
+
+	default:
+		fsm.logger.Errorf("Unsupported event operation: %s", event.Operation)
+		return nil
+	}
+}
+
 func (fsm *FiniteStateMachine) isRaftLeader() bool {
 	return fsm.raft.State() == raft.Leader
 }
