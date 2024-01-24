@@ -27,6 +27,33 @@ type Box struct {
 	logger log.Logger
 }
 
+func New(logger log.Logger, options ...Option) *Box {
+	box := &Box{
+		data:                      make(map[string]*Item),
+		defaultTTL:                -1,
+		garbageCollectionInterval: 30 * time.Minute,
+		logger:                    logger,
+	}
+
+	for _, opt := range options {
+		opt(box)
+	}
+
+	return box
+}
+
+func (b *Box) Run(ctx context.Context) {
+	b.logger.Infof("Starting box service with a default TTL of %v", b.defaultTTL)
+	if b.defaultTTL >= 0 {
+		b.runGarbageCollector()
+		defer b.stopGarbageCollector()
+	}
+
+	defer b.logger.Infof("Shutting down box service")
+
+	<-ctx.Done()
+}
+
 func (b *Box) Get(key string) *Item {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -69,40 +96,30 @@ func (b *Box) Delete(key string) error {
 	return nil
 }
 
-func (b *Box) Run(ctx context.Context) {
-	b.logger.Infof("Starting box service with a default TTL of %v", b.defaultTTL)
-	if b.defaultTTL >= 0 {
-		go b.runGarbageCollector()
-		defer b.stopGarbageCollector()
-	}
-
-	defer b.logger.Infof("Shutting down box service")
-
-	<-ctx.Done()
-}
-
 func (b *Box) runGarbageCollector() {
 	b.stopGarbageCollection = make(chan struct{})
 	ticker := time.NewTicker(b.garbageCollectionInterval)
 
 	b.logger.Infof("Starting the garbage collector with interval of %v", b.garbageCollectionInterval)
-	for {
-		select {
-		case <-ticker.C:
-			b.mu.Lock()
-			for k, v := range b.data {
-				if v.isTTLExpired() {
-					delete(b.data, k)
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				b.mu.Lock()
+				for k, v := range b.data {
+					if v.isTTLExpired() {
+						delete(b.data, k)
+					}
 				}
-			}
-			b.mu.Unlock()
+				b.mu.Unlock()
 
-		case <-b.stopGarbageCollection:
-			ticker.Stop()
-			b.stopGarbageCollection = nil
-			return
+			case <-b.stopGarbageCollection:
+				ticker.Stop()
+				b.stopGarbageCollection = nil
+				return
+			}
 		}
-	}
+	}()
 }
 
 func (b *Box) stopGarbageCollector() {
@@ -110,38 +127,4 @@ func (b *Box) stopGarbageCollector() {
 		b.logger.Infof("Shutting down the garbage collector")
 		b.stopGarbageCollection <- struct{}{}
 	}
-}
-
-type Option func(*Box)
-
-func WithDefaultTTL(ttl time.Duration) Option {
-	return func(b *Box) {
-		b.defaultTTL = ttl
-	}
-}
-
-func WithGarbageCollectionInterval(interval time.Duration) Option {
-	return func(b *Box) {
-		b.garbageCollectionInterval = interval
-	}
-}
-
-func WithLogger(logger log.Logger) Option {
-	return func(b *Box) {
-		b.logger = logger
-	}
-}
-
-func New(options ...Option) *Box {
-	box := &Box{
-		data:                      make(map[string]*Item),
-		defaultTTL:                -1,
-		garbageCollectionInterval: 30 * time.Minute,
-	}
-
-	for _, opt := range options {
-		opt(box)
-	}
-
-	return box
 }
