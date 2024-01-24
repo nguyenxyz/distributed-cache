@@ -25,7 +25,7 @@ type Record interface {
 	// LastUpdated returns the timestamp when the record was last updated
 	LastUpdated() time.Time
 
-	// CreationTime returns the timestramp when the recrod was first created
+	// CreationTime returns the timestamp when the recrod was first created
 	CreationTime() time.Time
 
 	// TTL returns the time-to-live duration for the record

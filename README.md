@@ -12,7 +12,7 @@
 - Zap: https://github.com/uber-go/zap
 - Grafana (Loki + Tempo): https://grafana.com/
 - InfluxDB: https://www.influxdata.com/
-- Docker, K8s, AWS
+- Docker, K8s, Helm, AWS
 
 ## Design:
 ### nbox-api-server:
@@ -21,5 +21,5 @@
 -  Summary: In-memory key-value store
 ### fsm: 
 -  Summary: State machine replication
-### k8s:
--  Summary: K8s middleware
+### kube:
+-  Summary: Kubernetes middleware

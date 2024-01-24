@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/ph-ngn/nanobox/pkg/util/log"
 )
 
 func TestBoxGet(t *testing.T) {
@@ -72,18 +74,24 @@ func TestBoxGet(t *testing.T) {
 		},
 	}
 
-	box := New()
+	box := New(log.NewZapLogger(log.Config{}))
 	box.data = mockData
 
 	for _, tc := range testCases {
 		t.Run(tc.desc, func(t *testing.T) {
 			item := box.Get(tc.key)
 			if tc.expectedValue == nil && item != nil {
-				t.Fatalf("Expected nil, got: %v", item)
+				t.Fatalf("Expected nil, got: %v", item.Value())
 			}
 
-			if tc.expectedValue != nil && (item == nil || !reflect.DeepEqual(item.Value(), tc.expectedValue)) {
-				t.Fatalf("Expected %v, got: %v", tc.expectedValue, item.Value())
+			if tc.expectedValue != nil {
+				if item == nil {
+					t.Fatalf("Expected %v, got: nil", tc.expectedValue)
+				}
+
+				if !reflect.DeepEqual(item.Value(), tc.expectedValue) {
+					t.Fatalf("Expected %v, got: %v", tc.expectedValue, item.Value())
+				}
 			}
 		})
 	}
