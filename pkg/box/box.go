@@ -1,6 +1,7 @@
 package box
 
 import (
+	"container/list"
 	"context"
 	"sync"
 	"time"
@@ -13,26 +14,33 @@ type Box struct {
 	mu sync.RWMutex
 
 	// The underlying key-value storage
-	data map[string]*Item
+	data map[string]*list.Element
+
+	// Optional: Capacity of the key-value storage
+	capacity int
+
+	// Doubly linked list to keep track of the least recently used items
+	lru list.List
 
 	// Optional: Default time-to-live for items in the key-value store
 	defaultTTL time.Duration
 
 	// Optional: Garbage collection interval for removing expired items
-	garbageCollectionInterval time.Duration
+	gcInterval time.Duration
 
 	// Channel for signaling the garbage collector to stop
-	stopGarbageCollection chan struct{}
+	gcStop chan struct{}
 
 	logger log.Logger
 }
 
 func New(logger log.Logger, options ...Option) *Box {
 	box := &Box{
-		data:                      make(map[string]*Item),
-		defaultTTL:                -1,
-		garbageCollectionInterval: 30 * time.Minute,
-		logger:                    logger,
+		data:       make(map[string]*list.Element),
+		capacity:   -1,
+		defaultTTL: -1,
+		gcInterval: 30 * time.Minute,
+		logger:     logger,
 	}
 
 	for _, opt := range options {
@@ -58,32 +66,52 @@ func (b *Box) Get(key string) *Item {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	item, found := b.data[key]
-	if found && item.isTTLExpired() {
-		delete(b.data, key)
-		return nil
+	if e, ok := b.data[key]; ok {
+		item := e.Value.(*Item)
+		if item.isTTLExpired() {
+			delete(b.data, key)
+			b.lru.Remove(e)
+			return nil
+		}
+
+		return item
 	}
 
-	return item
+	return nil
 }
 
 func (b *Box) Set(key string, value interface{}) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if item, found := b.data[key]; found && !item.isTTLExpired() {
-		item.value = value
-		item.lastUpdated = time.Now()
-		return nil
+	if e, ok := b.data[key]; ok {
+		item := e.Value.(*Item)
+		if !item.isTTLExpired() {
+			item.value = value
+			item.lastUpdated = time.Now()
+			b.lru.MoveToFront(e)
+			return nil
+		}
+
+		delete(b.data, key)
+		b.lru.Remove(e)
 	}
 
-	b.data[key] = &Item{
+	for b.capacity > 0 && len(b.data) >= b.capacity {
+		back := b.lru.Back()
+		delete(b.data, back.Value.(*Item).Key())
+		b.lru.Remove(back)
+	}
+
+	item := &Item{
 		key:          key,
 		value:        value,
 		lastUpdated:  time.Now(),
 		creationTime: time.Now(),
 		setTTL:       b.defaultTTL,
 	}
+	b.lru.PushFront(item)
+	b.data[key] = b.lru.Front()
 
 	return nil
 }
@@ -92,30 +120,35 @@ func (b *Box) Delete(key string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	delete(b.data, key)
+	if e, ok := b.data[key]; ok {
+		delete(b.data, key)
+		b.lru.Remove(e)
+	}
+
 	return nil
 }
 
 func (b *Box) runGarbageCollector() {
-	b.stopGarbageCollection = make(chan struct{})
-	ticker := time.NewTicker(b.garbageCollectionInterval)
+	b.gcStop = make(chan struct{})
+	ticker := time.NewTicker(b.gcInterval)
 
-	b.logger.Infof("Starting the garbage collector with interval of %v", b.garbageCollectionInterval)
+	b.logger.Infof("Starting the garbage collector with interval of %v", b.gcInterval)
 	go func() {
 		for {
 			select {
 			case <-ticker.C:
 				b.mu.Lock()
 				for k, v := range b.data {
-					if v.isTTLExpired() {
+					if v.Value.(*Item).isTTLExpired() {
 						delete(b.data, k)
+						b.lru.Remove(v)
 					}
 				}
 				b.mu.Unlock()
 
-			case <-b.stopGarbageCollection:
+			case <-b.gcStop:
 				ticker.Stop()
-				b.stopGarbageCollection = nil
+				b.gcStop = nil
 				return
 			}
 		}
@@ -123,8 +156,8 @@ func (b *Box) runGarbageCollector() {
 }
 
 func (b *Box) stopGarbageCollector() {
-	if b.stopGarbageCollection != nil {
+	if b.gcStop != nil {
 		b.logger.Infof("Shutting down the garbage collector")
-		b.stopGarbageCollection <- struct{}{}
+		b.gcStop <- struct{}{}
 	}
 }
