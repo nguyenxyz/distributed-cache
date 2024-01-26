@@ -11,7 +11,7 @@ import (
 
 type Box struct {
 	// Mutex for thread-safe access to the key-value store
-	mu sync.RWMutex
+	mu sync.Mutex
 
 	// The underlying key-value storage
 	data map[string]*list.Element
@@ -63,8 +63,8 @@ func (b *Box) Run(ctx context.Context) {
 }
 
 func (b *Box) Get(key string) *Item {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
 	if e, ok := b.data[key]; ok {
 		item := e.Value.(*Item)
