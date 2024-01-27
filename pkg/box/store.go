@@ -19,6 +19,9 @@ type Store interface {
 	// Collect provides a stream of records in the store, it will block other operations until either records are exhausted
 	// or the context is canceled, so code should cancel the context as soon as operations running in this context complete
 	Collect(ctx context.Context) (chan Record, error)
+
+	// Clear removes all records in the store
+	Clear()
 }
 
 // Record is the interface for an item object

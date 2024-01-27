@@ -160,6 +160,14 @@ func (b *Box) Collect(ctx context.Context) (chan Record, error) {
 	return rc, nil
 }
 
+func (b *Box) Clear() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.lru.Init()
+	b.data = make(map[string]*list.Element)
+}
+
 func (b *Box) runGarbageCollector() {
 	b.gcStop = make(chan struct{})
 	ticker := time.NewTicker(b.gcInterval)
