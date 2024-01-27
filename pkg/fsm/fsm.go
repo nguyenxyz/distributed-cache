@@ -86,11 +86,11 @@ func (fsm *FiniteStateMachine) Apply(l *raft.Log) interface{} {
 }
 
 func (fsm *FiniteStateMachine) Snapshot() (raft.FSMSnapshot, error) {
-
+	return nil, nil
 }
 
 func (fsm *FiniteStateMachine) Restore(snapshot io.ReadCloser) error {
-
+	return nil
 }
 
 // replicate replicates an event to followers and applies the event to the fsm if it is commited by a quorum of the cluster

@@ -130,6 +130,36 @@ func (b *Box) Delete(key string) error {
 	return nil
 }
 
+func (b *Box) Collect(ctx context.Context) (chan Record, error) {
+	rc := make(chan Record)
+	go func() {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		defer close(rc)
+
+		for e := b.lru.Front(); e != nil; {
+			item := e.Value.(*Item)
+			if item.isTTLExpired() {
+				delete(b.data, item.Key())
+				next := e.Next()
+				b.lru.Remove(e)
+				e = next
+				continue
+			}
+
+			select {
+			case <-ctx.Done():
+				return
+
+			case rc <- item:
+				e = e.Next()
+			}
+		}
+	}()
+
+	return rc, nil
+}
+
 func (b *Box) runGarbageCollector() {
 	b.gcStop = make(chan struct{})
 	ticker := time.NewTicker(b.gcInterval)

@@ -1,6 +1,9 @@
 package box
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // Store is the interface for a box object
 type Store interface {
@@ -12,6 +15,10 @@ type Store interface {
 
 	// Delete removes the given key if found, returns error on failure
 	Delete(key string) error
+
+	// Collect provides a stream of records in the store, it will block other operations until either records are exhausted
+	// or the context is canceled, so code should cancel the context as soon as operations running in this context complete
+	Collect(ctx context.Context) (chan Record, error)
 }
 
 // Record is the interface for an item object
