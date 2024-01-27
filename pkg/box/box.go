@@ -9,6 +9,8 @@ import (
 	"github.com/ph-ngn/nanobox/pkg/util/log"
 )
 
+var _ Store = (*Box)(nil)
+
 type Box struct {
 	// Mutex for thread-safe access to the key-value store
 	mu sync.Mutex
@@ -62,7 +64,7 @@ func (b *Box) Run(ctx context.Context) {
 	<-ctx.Done()
 }
 
-func (b *Box) Get(key string) *Item {
+func (b *Box) Get(key string) Record {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -126,6 +128,36 @@ func (b *Box) Delete(key string) error {
 	}
 
 	return nil
+}
+
+func (b *Box) Collect(ctx context.Context) (chan Record, error) {
+	rc := make(chan Record)
+	go func() {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		defer close(rc)
+
+		for e := b.lru.Front(); e != nil; {
+			item := e.Value.(*Item)
+			if item.isTTLExpired() {
+				delete(b.data, item.Key())
+				next := e.Next()
+				b.lru.Remove(e)
+				e = next
+				continue
+			}
+
+			select {
+			case <-ctx.Done():
+				return
+
+			case rc <- item:
+				e = e.Next()
+			}
+		}
+	}()
+
+	return rc, nil
 }
 
 func (b *Box) runGarbageCollector() {

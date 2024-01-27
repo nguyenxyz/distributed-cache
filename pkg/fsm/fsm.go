@@ -3,6 +3,7 @@ package fsm
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"time"
 
 	"github.com/hashicorp/raft"
@@ -82,6 +83,14 @@ func (fsm *FiniteStateMachine) Apply(l *raft.Log) interface{} {
 	default:
 		return ErrUnsupportedOperation
 	}
+}
+
+func (fsm *FiniteStateMachine) Snapshot() (raft.FSMSnapshot, error) {
+	return nil, nil
+}
+
+func (fsm *FiniteStateMachine) Restore(snapshot io.ReadCloser) error {
+	return nil
 }
 
 // replicate replicates an event to followers and applies the event to the fsm if it is commited by a quorum of the cluster

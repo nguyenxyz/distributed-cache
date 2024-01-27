@@ -2,6 +2,8 @@ package box
 
 import "time"
 
+var _ Record = (*Item)(nil)
+
 type Item struct {
 	key          string
 	value        interface{}
