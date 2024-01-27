@@ -17,7 +17,15 @@ func WithDefaultTTL(ttl time.Duration) Option {
 func WithGarbageCollectionInterval(interval time.Duration) Option {
 	return func(b *Box) {
 		if interval > 0 {
-			b.garbageCollectionInterval = interval
+			b.gcInterval = interval
+		}
+	}
+}
+
+func WithCapacity(cap int) Option {
+	return func(b *Box) {
+		if cap > 0 {
+			b.capacity = cap
 		}
 	}
 }
