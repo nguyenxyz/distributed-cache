@@ -75,7 +75,7 @@ func TestBoxGet(t *testing.T) {
 	}
 
 	box := New(log.NewZapLogger(log.Config{}))
-	box.data = mockData
+	box.kv = mockData
 
 	for _, tc := range testCases {
 		t.Run(tc.desc, func(t *testing.T) {

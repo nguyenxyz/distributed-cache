@@ -23,3 +23,9 @@
 -  Summary: State machine replication
 ### kube:
 -  Summary: Kubernetes middleware
+
+
+## Challenges during implementation:
+- Sync lru evictions
+  + Read requests on replicas will update their lru independently of one another and the master. When capacity is reached, every node will likely have different set of evicted keys which leads to divergence
+  + One solution could be disabling eviction in replicas and sync evictions from master with delete requests to replicas. Read requests to replicas can still return evicted entries for some period due to delay, but eventual consistency is still better than a mess :)

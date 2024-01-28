@@ -15,10 +15,10 @@ var _ Store = (*Box)(nil)
 
 type Box struct {
 	// The underlying key-value storage
-	data map[string]*list.Element
+	kv map[string]*list.Element
 
 	// Lock striping manager for concurrent access to subsets of key space in key-value storage
-	dataLockManager LockManager
+	kvLockManager LockManager
 
 	// Optional: Capacity of the key-value storage
 	capacity int64
@@ -49,7 +49,7 @@ type Box struct {
 
 func New(logger log.Logger, options ...Option) *Box {
 	box := &Box{
-		data:       make(map[string]*list.Element),
+		kv:         make(map[string]*list.Element),
 		capacity:   -1,
 		defaultTTL: -1,
 		logger:     logger,
@@ -75,15 +75,15 @@ func (b *Box) Run(ctx context.Context) {
 }
 
 func (b *Box) Get(key string) Record {
-	lock := b.dataLockManager.Get(key)
+	lock := b.kvLockManager.Get(key)
 	lock.RLock()
 	defer lock.RUnlock()
 
-	if e, ok := b.data[key]; ok {
+	if e, ok := b.kv[key]; ok {
 		b.lm.Lock()
-		defer b.lm.Unlock()
-
 		b.lru.MoveToFront(e)
+		b.lm.Unlock()
+
 		return e.Value.(*Item)
 	}
 
@@ -91,11 +91,11 @@ func (b *Box) Get(key string) Record {
 }
 
 func (b *Box) Set(key string, value interface{}) error {
-	lock := b.dataLockManager.Get(key)
+	lock := b.kvLockManager.Get(key)
 	lock.Lock()
 	defer lock.Unlock()
 
-	if e, ok := b.data[key]; ok {
+	if e, ok := b.kv[key]; ok {
 		item := e.Value.(*Item)
 		item.value = value
 		item.lastUpdated = time.Now()
@@ -109,10 +109,10 @@ func (b *Box) Set(key string, value interface{}) error {
 	for b.capacity > 0 && b.size.Load() >= b.capacity {
 		b.lm.Lock()
 		back := b.lru.Back()
-		delete(b.data, back.Value.(*Item).Key())
+		delete(b.kv, back.Value.(*Item).Key())
 		b.lru.Remove(back)
-		b.size.Add(-1)
 		b.lm.Unlock()
+		b.size.Add(-1)
 	}
 
 	item := &Item{
@@ -124,24 +124,24 @@ func (b *Box) Set(key string, value interface{}) error {
 	}
 
 	b.lm.Lock()
-	defer b.lm.Unlock()
 	b.lru.PushFront(item)
-	b.data[key] = b.lru.Front()
+	b.kv[key] = b.lru.Front()
+	b.lm.Unlock()
 	b.size.Add(1)
 
 	return nil
 }
 
 func (b *Box) Delete(key string) error {
-	lock := b.dataLockManager.Get(key)
+	lock := b.kvLockManager.Get(key)
 	lock.Lock()
 	defer lock.Unlock()
 
-	if e, ok := b.data[key]; ok {
+	if e, ok := b.kv[key]; ok {
 		b.lm.Lock()
-		defer b.lm.Unlock()
-		delete(b.data, key)
 		b.lru.Remove(e)
+		b.lm.Unlock()
+		delete(b.kv, key)
 		b.size.Add(-1)
 	}
 
@@ -153,8 +153,8 @@ func (b *Box) Collect(ctx context.Context) (chan Record, error) {
 	go func() {
 		defer close(rc)
 
-		for k, v := range b.data {
-			lock := b.dataLockManager.Get(k)
+		for k, v := range b.kv {
+			lock := b.kvLockManager.Get(k)
 			lock.RLock()
 
 			item := v.Value.(*Item)
