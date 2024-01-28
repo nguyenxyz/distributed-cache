@@ -45,7 +45,3 @@ func (i *Item) TTL() time.Duration {
 func (i *Item) Metadata() map[string]interface{} {
 	return i.metadata
 }
-
-func (i *Item) isTTLExpired() bool {
-	return i.TTL() == 0
-}
