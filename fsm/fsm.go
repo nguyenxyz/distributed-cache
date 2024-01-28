@@ -8,8 +8,8 @@ import (
 
 	"github.com/hashicorp/raft"
 
-	"github.com/ph-ngn/nanobox/pkg/box"
-	"github.com/ph-ngn/nanobox/pkg/util/log"
+	"github.com/ph-ngn/nanobox/box"
+	"github.com/ph-ngn/nanobox/util/log"
 )
 
 const (

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ph-ngn/nanobox/pkg/util/log"
+	"github.com/ph-ngn/nanobox/util/log"
 )
 
 func TestBoxGet(t *testing.T) {

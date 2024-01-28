@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ph-ngn/nanobox/pkg/util/log"
-	rw "github.com/ph-ngn/nanobox/pkg/util/response"
+	"github.com/ph-ngn/nanobox/util/log"
+	rw "github.com/ph-ngn/nanobox/util/response"
 
 	"github.com/go-chi/chi/v5"
 )

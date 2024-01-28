@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ph-ngn/nanobox/pkg/util/log"
+	"github.com/ph-ngn/nanobox/util/log"
 )
 
 var _ Store = (*Box)(nil)
@@ -109,9 +109,9 @@ func (b *Box) Set(key string, value interface{}) error {
 	for b.capacity > 0 && b.size.Load() >= b.capacity {
 		b.lm.Lock()
 		back := b.lru.Back()
-		delete(b.kv, back.Value.(*Item).Key())
 		b.lru.Remove(back)
 		b.lm.Unlock()
+		delete(b.kv, back.Value.(*Item).Key())
 		b.size.Add(-1)
 	}
 
@@ -130,11 +130,13 @@ func (b *Box) Set(key string, value interface{}) error {
 	b.lm.Unlock()
 	b.size.Add(1)
 
-	timepoint := now.Unix()
-	el := b.expiryLockManager.Get(strconv.Itoa(int(timepoint)))
-	el.Lock()
-	b.expiry[timepoint] = append(b.expiry[timepoint], b.kv[key])
-	el.Unlock()
+	if b.defaultTTL > 0 {
+		timepoint := now.Add(b.defaultTTL).Unix()
+		el := b.expiryLockManager.Get(strconv.Itoa(int(timepoint)))
+		el.Lock()
+		b.expiry[timepoint] = append(b.expiry[timepoint], b.kv[key])
+		el.Unlock()
+	}
 
 	return nil
 }
