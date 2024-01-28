@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ph-ngn/nanobox/pkg/util/log"
@@ -12,14 +13,20 @@ import (
 var _ Store = (*Box)(nil)
 
 type Box struct {
-	// Mutex for thread-safe access to the key-value store
-	mu sync.Mutex
-
 	// The underlying key-value storage
 	data map[string]*list.Element
 
+	// Lock striping manager for concurrent access to subsets of key space in key-value storage
+	lockManager LockManager
+
 	// Optional: Capacity of the key-value storage
-	capacity int
+	capacity int64
+
+	// An atomic counter that keeps track of the number of entries in the key-value storage
+	size atomic.Int64
+
+	// Lock for thread-safe access to the shared lru linked list
+	lm sync.RWMutex
 
 	// Doubly linked list to keep track of the least recently used items
 	lru list.List
@@ -27,11 +34,8 @@ type Box struct {
 	// Optional: Default time-to-live for items in the key-value store
 	defaultTTL time.Duration
 
-	// Optional: Garbage collection interval for removing expired items
-	gcInterval time.Duration
-
 	// Channel for signaling the garbage collector to stop
-	gcStop chan struct{}
+	gcstop chan struct{}
 
 	logger log.Logger
 }
@@ -39,9 +43,8 @@ type Box struct {
 func New(logger log.Logger, options ...Option) *Box {
 	box := &Box{
 		data:       make(map[string]*list.Element),
-		capacity:   -1,
+		capacity:   0,
 		defaultTTL: -1,
-		gcInterval: 30 * time.Minute,
 		logger:     logger,
 	}
 
@@ -65,44 +68,44 @@ func (b *Box) Run(ctx context.Context) {
 }
 
 func (b *Box) Get(key string) Record {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+	lock := b.lockManager.Get(key)
+	lock.RLock()
+	defer lock.RLock()
 
 	if e, ok := b.data[key]; ok {
-		item := e.Value.(*Item)
-		if item.isTTLExpired() {
-			delete(b.data, key)
-			b.lru.Remove(e)
-			return nil
-		}
+		b.lm.Lock()
+		defer b.lm.Unlock()
 
-		return item
+		b.lru.MoveToFront(e)
+		return e.Value.(*Item)
 	}
 
 	return nil
 }
 
 func (b *Box) Set(key string, value interface{}) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+	lock := b.lockManager.Get(key)
+	lock.Lock()
+	defer lock.Unlock()
 
 	if e, ok := b.data[key]; ok {
 		item := e.Value.(*Item)
-		if !item.isTTLExpired() {
-			item.value = value
-			item.lastUpdated = time.Now()
-			b.lru.MoveToFront(e)
-			return nil
-		}
+		item.value = value
+		item.lastUpdated = time.Now()
+		b.lm.Lock()
+		b.lru.MoveToFront(e)
+		b.lm.Unlock()
 
-		delete(b.data, key)
-		b.lru.Remove(e)
+		return nil
 	}
 
-	for b.capacity > 0 && len(b.data) >= b.capacity {
+	for b.capacity > 0 && b.size.Load() >= b.capacity {
+		b.lm.Lock()
 		back := b.lru.Back()
 		delete(b.data, back.Value.(*Item).Key())
 		b.lru.Remove(back)
+		b.size.Add(-1)
+		b.lm.Unlock()
 	}
 
 	item := &Item{
@@ -112,19 +115,27 @@ func (b *Box) Set(key string, value interface{}) error {
 		creationTime: time.Now(),
 		setTTL:       b.defaultTTL,
 	}
+
+	b.lm.Lock()
+	defer b.lm.Unlock()
 	b.lru.PushFront(item)
 	b.data[key] = b.lru.Front()
+	b.size.Add(1)
 
 	return nil
 }
 
 func (b *Box) Delete(key string) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+	lock := b.lockManager.Get(key)
+	lock.Lock()
+	defer lock.Unlock()
 
 	if e, ok := b.data[key]; ok {
 		delete(b.data, key)
+		b.lm.Lock()
+		defer b.lm.Unlock()
 		b.lru.Remove(e)
+		b.size.Add(-1)
 	}
 
 	return nil
@@ -133,26 +144,21 @@ func (b *Box) Delete(key string) error {
 func (b *Box) Collect(ctx context.Context) (chan Record, error) {
 	rc := make(chan Record)
 	go func() {
-		b.mu.Lock()
-		defer b.mu.Unlock()
 		defer close(rc)
 
-		for e := b.lru.Front(); e != nil; {
-			item := e.Value.(*Item)
-			if item.isTTLExpired() {
-				delete(b.data, item.Key())
-				next := e.Next()
-				b.lru.Remove(e)
-				e = next
-				continue
-			}
+		for k, v := range b.data {
+			lock := b.lockManager.Get(k)
+			lock.RLock()
+
+			item := v.Value.(*Item)
 
 			select {
 			case <-ctx.Done():
+				lock.RUnlock()
 				return
 
 			case rc <- item:
-				e = e.Next()
+				lock.RLock()
 			}
 		}
 	}()
@@ -160,19 +166,10 @@ func (b *Box) Collect(ctx context.Context) (chan Record, error) {
 	return rc, nil
 }
 
-func (b *Box) Clear() {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	b.lru.Init()
-	b.data = make(map[string]*list.Element)
-}
-
 func (b *Box) runGarbageCollector() {
-	b.gcStop = make(chan struct{})
-	ticker := time.NewTicker(b.gcInterval)
+	b.gcstop = make(chan struct{})
+	ticker := time.NewTicker(time.Second)
 
-	b.logger.Infof("Starting the garbage collector with interval of %v", b.gcInterval)
 	go func() {
 		for {
 			select {
@@ -186,9 +183,9 @@ func (b *Box) runGarbageCollector() {
 				}
 				b.mu.Unlock()
 
-			case <-b.gcStop:
+			case <-b.gcstop:
 				ticker.Stop()
-				b.gcStop = nil
+				b.gcstop = nil
 				return
 			}
 		}
@@ -196,8 +193,8 @@ func (b *Box) runGarbageCollector() {
 }
 
 func (b *Box) stopGarbageCollector() {
-	if b.gcStop != nil {
+	if b.gcstop != nil {
 		b.logger.Infof("Shutting down the garbage collector")
-		b.gcStop <- struct{}{}
+		b.gcstop <- struct{}{}
 	}
 }
