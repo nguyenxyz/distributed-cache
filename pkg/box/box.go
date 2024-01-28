@@ -17,13 +17,13 @@ type Box struct {
 	// The underlying key-value storage
 	kv map[string]*list.Element
 
-	// Lock striping manager for concurrent access to subsets of key space in key-value storage
+	// Lock striping manager for concurrent access to subsets of key space in kv map
 	kvLockManager LockManager
 
 	// Optional: Capacity of the key-value storage
 	capacity int64
 
-	// An atomic counter that keeps track of the number of entries in the key-value storage
+	// An atomic counter that keeps track of the number of entries in the kv map
 	size atomic.Int64
 
 	// Lock for thread-safe access to the lru linked list
@@ -32,11 +32,11 @@ type Box struct {
 	// Doubly linked list to keep track of the least recently used entries
 	lru list.List
 
-	// Optional: Default time-to-live for entries in the key-value storage
+	// Optional: Default time-to-live for entries in the kv map
 	defaultTTL time.Duration
 
 	// Unix time bucketed expiry map of the entries
-	expiry map[int64][]*list.Element
+	expiry map[int64]([]*list.Element)
 
 	// Lock striping manager for for concurrent access to subsets of key space in the expiry map
 	expiryLockManager LockManager
@@ -115,11 +115,12 @@ func (b *Box) Set(key string, value interface{}) error {
 		b.size.Add(-1)
 	}
 
+	now := time.Now()
 	item := &Item{
 		key:          key,
 		value:        value,
-		lastUpdated:  time.Now(),
-		creationTime: time.Now(),
+		lastUpdated:  now,
+		creationTime: now,
 		setTTL:       b.defaultTTL,
 	}
 
@@ -128,6 +129,12 @@ func (b *Box) Set(key string, value interface{}) error {
 	b.kv[key] = b.lru.Front()
 	b.lm.Unlock()
 	b.size.Add(1)
+
+	timepoint := now.Unix()
+	el := b.expiryLockManager.Get(strconv.Itoa(int(timepoint)))
+	el.Lock()
+	b.expiry[timepoint] = append(b.expiry[timepoint], b.kv[key])
+	el.Unlock()
 
 	return nil
 }
@@ -181,10 +188,10 @@ func (b *Box) runGarbageCollector() {
 		for {
 			select {
 			case <-ticker.C:
-				now := time.Now().Unix() + 1
-				lock := b.expiryLockManager.Get(strconv.Itoa(int(now)))
+				timepoint := time.Now().Unix() + 1
+				lock := b.expiryLockManager.Get(strconv.Itoa(int(timepoint)))
 				lock.RLock()
-				if l, ok := b.expiry[now]; ok {
+				if l, ok := b.expiry[timepoint]; ok {
 					for _, e := range l {
 						b.Delete(e.Value.(*Item).Key())
 					}
