@@ -3,6 +3,7 @@ package box
 import (
 	"container/list"
 	"context"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -17,7 +18,7 @@ type Box struct {
 	data map[string]*list.Element
 
 	// Lock striping manager for concurrent access to subsets of key space in key-value storage
-	lockManager LockManager
+	dataLockManager LockManager
 
 	// Optional: Capacity of the key-value storage
 	capacity int64
@@ -25,14 +26,20 @@ type Box struct {
 	// An atomic counter that keeps track of the number of entries in the key-value storage
 	size atomic.Int64
 
-	// Lock for thread-safe access to the shared lru linked list
+	// Lock for thread-safe access to the lru linked list
 	lm sync.RWMutex
 
-	// Doubly linked list to keep track of the least recently used items
+	// Doubly linked list to keep track of the least recently used entries
 	lru list.List
 
-	// Optional: Default time-to-live for items in the key-value store
+	// Optional: Default time-to-live for entries in the key-value storage
 	defaultTTL time.Duration
+
+	// Unix time bucketed expiry map of the entries
+	expiry map[int64][]*list.Element
+
+	// Lock striping manager for for concurrent access to subsets of key space in the expiry map
+	expiryLockManager LockManager
 
 	// Channel for signaling the garbage collector to stop
 	gcstop chan struct{}
@@ -43,7 +50,7 @@ type Box struct {
 func New(logger log.Logger, options ...Option) *Box {
 	box := &Box{
 		data:       make(map[string]*list.Element),
-		capacity:   0,
+		capacity:   -1,
 		defaultTTL: -1,
 		logger:     logger,
 	}
@@ -68,9 +75,9 @@ func (b *Box) Run(ctx context.Context) {
 }
 
 func (b *Box) Get(key string) Record {
-	lock := b.lockManager.Get(key)
+	lock := b.dataLockManager.Get(key)
 	lock.RLock()
-	defer lock.RLock()
+	defer lock.RUnlock()
 
 	if e, ok := b.data[key]; ok {
 		b.lm.Lock()
@@ -84,7 +91,7 @@ func (b *Box) Get(key string) Record {
 }
 
 func (b *Box) Set(key string, value interface{}) error {
-	lock := b.lockManager.Get(key)
+	lock := b.dataLockManager.Get(key)
 	lock.Lock()
 	defer lock.Unlock()
 
@@ -126,14 +133,14 @@ func (b *Box) Set(key string, value interface{}) error {
 }
 
 func (b *Box) Delete(key string) error {
-	lock := b.lockManager.Get(key)
+	lock := b.dataLockManager.Get(key)
 	lock.Lock()
 	defer lock.Unlock()
 
 	if e, ok := b.data[key]; ok {
-		delete(b.data, key)
 		b.lm.Lock()
 		defer b.lm.Unlock()
+		delete(b.data, key)
 		b.lru.Remove(e)
 		b.size.Add(-1)
 	}
@@ -147,7 +154,7 @@ func (b *Box) Collect(ctx context.Context) (chan Record, error) {
 		defer close(rc)
 
 		for k, v := range b.data {
-			lock := b.lockManager.Get(k)
+			lock := b.dataLockManager.Get(k)
 			lock.RLock()
 
 			item := v.Value.(*Item)
@@ -158,7 +165,7 @@ func (b *Box) Collect(ctx context.Context) (chan Record, error) {
 				return
 
 			case rc <- item:
-				lock.RLock()
+				lock.RUnlock()
 			}
 		}
 	}()
@@ -174,14 +181,15 @@ func (b *Box) runGarbageCollector() {
 		for {
 			select {
 			case <-ticker.C:
-				b.mu.Lock()
-				for k, v := range b.data {
-					if v.Value.(*Item).isTTLExpired() {
-						delete(b.data, k)
-						b.lru.Remove(v)
+				now := time.Now().Unix()
+				lock := b.expiryLockManager.Get(strconv.Itoa(int(now)))
+				lock.RLock()
+				if l, ok := b.expiry[now]; ok {
+					for _, e := range l {
+						b.Delete(e.Value.(*Item).Key())
 					}
 				}
-				b.mu.Unlock()
+				lock.Unlock()
 
 			case <-b.gcstop:
 				ticker.Stop()
