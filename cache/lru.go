@@ -48,8 +48,6 @@ func NewLRU(ctx context.Context, options ...Option) *LRUCache {
 		kvLockManager:     AdaptiveLockManager{},
 		expiry:            make(map[int64][]*list.Element),
 		expiryLockManager: LockManager{},
-		cap:               -1,
-		ttl:               -1,
 	}
 
 	for _, opt := range options {
@@ -159,14 +157,39 @@ func (lc *LRUCache) runGarbageCollection(ctx context.Context) {
 			case <-ticker.C:
 				timepoint := time.Now().Unix() + 1
 				lock := lc.expiryLockManager.Get(strconv.Itoa(int(timepoint)))
-				lock.RLock()
+				lock.Lock()
 				if l, ok := lc.expiry[timepoint]; ok {
 					for _, e := range l {
 						lc.Delete(e.Value.(*Item).Key())
 					}
 				}
-				lock.RUnlock()
+				delete(lc.expiry, timepoint)
+				lock.Unlock()
 			}
 		}
 	}()
+}
+
+type Option func(*LRUCache)
+
+func WithDefaultTTL(ttl time.Duration) Option {
+	return func(lc *LRUCache) {
+		if ttl > 0 {
+			lc.ttl = ttl
+		}
+	}
+}
+
+func WithCapacity(cap int) Option {
+	return func(lc *LRUCache) {
+		if cap > 0 {
+			lc.cap = cap
+		}
+	}
+}
+
+func WithEvictionCallback(cb EvictionCallBack) Option {
+	return func(lc *LRUCache) {
+		lc.onEvict = cb
+	}
 }

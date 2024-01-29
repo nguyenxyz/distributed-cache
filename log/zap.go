@@ -24,14 +24,13 @@ func NewZapLogger(cfg Config) *ZapLogger {
 	fileEncoder := zapcore.NewJSONEncoder(config)
 	consoleEncoder := zapcore.NewConsoleEncoder(config)
 	logFile, _ := os.OpenFile(cfg.LogFileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	writer := zapcore.AddSync(logFile)
 	defaultLogLevel := zapcore.DebugLevel
 	logFields := zap.Fields(
 		zap.String("service.name", cfg.ServiceName),
 		zap.String("service.host", cfg.ServiceHost),
 	)
 	core := zapcore.NewTee(
-		zapcore.NewCore(fileEncoder, writer, defaultLogLevel),
+		zapcore.NewCore(fileEncoder, zapcore.AddSync(logFile), defaultLogLevel),
 		zapcore.NewCore(consoleEncoder, zapcore.AddSync(os.Stdout), defaultLogLevel),
 	)
 	logger := zap.New(core, zap.AddCaller(), zap.AddStacktrace(zapcore.ErrorLevel), logFields)
