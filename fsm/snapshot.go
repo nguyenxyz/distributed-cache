@@ -5,7 +5,6 @@ import (
 )
 
 type Snapshot struct {
-	config map[string]interface{}
 }
 
 func (s *Snapshot) Persist(sink raft.SnapshotSink) error {

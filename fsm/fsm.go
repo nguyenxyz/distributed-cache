@@ -9,7 +9,7 @@ import (
 	"github.com/hashicorp/raft"
 
 	"github.com/ph-ngn/nanobox/cache"
-	"github.com/ph-ngn/nanobox/log"
+	"github.com/ph-ngn/nanobox/telemetry"
 )
 
 const (
@@ -23,70 +23,97 @@ var (
 
 // Event represents an event in the event log that will get replicated to Raft followers
 type Event struct {
-	Operation string      `json:"operation,omitempty"`
-	Key       string      `json:"key,omitempty"`
-	Value     interface{} `json:"value,omitempty"`
+	Op    string      `json:"op,omitempty"`
+	Key   string      `json:"key,omitempty"`
+	Value interface{} `json:"value,omitempty"`
 }
 
 // FiniteStateMachine is a wrapper around Store and manages replication with Raft consensus
 type FiniteStateMachine struct {
-	cache cache.Cache
+	cache.Cache
 
 	raft *raft.Raft
 
-	logger log.Logger
+	logger telemetry.Logger
 }
 
-func (fsm *FiniteStateMachine) Get(key string) (cache.Entry, bool) {
-	if !fsm.isRaftLeader() {
-		return fsm.cache.Peek(key)
-	}
-
-	return fsm.cache.Get(key)
-}
-
-func (fsm *FiniteStateMachine) Set(key string, value interface{}) error {
+func (fsm *FiniteStateMachine) Set(key string, value interface{}) (bool, error) {
 	if !fsm.isRaftLeader() {
 		fsm.logger.Errorf("Calling Set on follower")
-		return ErrNotRaftLeader
+		return false, ErrNotRaftLeader
 	}
 
 	event := Event{
-		Operation: "set",
-		Key:       key,
-		Value:     value,
+		Op:    "set",
+		Key:   key,
+		Value: value,
 	}
 
-	return fsm.replicate(event)
+	res, err := fsm.replicateAndApplyOnQuorum(event)
+	if err != nil {
+		fsm.logger.Debugf("Succesfully replicate and apply event: %+v", event)
+		return res.(bool), nil
+	}
+
+	return false, err
 }
 
-func (fsm *FiniteStateMachine) Delete(key string) error {
+func (fsm *FiniteStateMachine) Delete(key string) (bool, error) {
 	if !fsm.isRaftLeader() {
 		fsm.logger.Errorf("Calling Delete on follower")
+		return false, ErrNotRaftLeader
+	}
+
+	event := Event{
+		Op:  "delete",
+		Key: key,
+	}
+
+	res, err := fsm.replicateAndApplyOnQuorum(event)
+	if err != nil {
+		fsm.logger.Debugf("Succesfully replicate and apply event: %+v", event)
+		return res.(bool), nil
+	}
+
+	return false, err
+}
+
+func (fsm *FiniteStateMachine) Purge() error {
+	if !fsm.isRaftLeader() {
+		fsm.logger.Errorf("Calling Purge on follower")
 		return ErrNotRaftLeader
 	}
 
 	event := Event{
-		Operation: "delete",
-		Key:       key,
+		Op: "purge",
 	}
 
-	return fsm.replicate(event)
+	_, err := fsm.replicateAndApplyOnQuorum(event)
+	if err != nil {
+		fsm.logger.Debugf("Succesfully replicate and apply event: %+v", event)
+	}
+
+	return err
 }
 
 // Apply applies an event from the log to the finite state machine and is called once a log entry is committed by a quorum of the cluster
 func (fsm *FiniteStateMachine) Apply(l *raft.Log) interface{} {
 	var event Event
 	if err := json.Unmarshal(l.Data, &event); err != nil {
+		// need to exit and recover here so the fsm get a chance to reapply the event
 		fsm.logger.Fatalf("Failed to unmarshal an event from the event log: %v", err)
 	}
 
-	switch event.Operation {
+	switch event.Op {
 	case "set":
-		return fsm.cache.Set(event.Key, event.Value)
+		return fsm.Cache.Set(event.Key, event.Value)
 
 	case "delete":
-		return fsm.cache.Delete(event.Key)
+		return fsm.Cache.Delete(event.Key)
+
+	case "purge":
+		fsm.Cache.Purge()
+		return nil
 
 	default:
 		return ErrUnsupportedOperation
@@ -101,26 +128,20 @@ func (fsm *FiniteStateMachine) Restore(snapshot io.ReadCloser) error {
 	return nil
 }
 
-// replicate replicates an event to followers and applies the event to the fsm if it is commited by a quorum of the cluster
-func (fsm *FiniteStateMachine) replicate(event Event) error {
+// replicateAndApplyOnQuorum replicates an event to followers and applies the event to the fsm if it is commited by a quorum of the cluster
+func (fsm *FiniteStateMachine) replicateAndApplyOnQuorum(event Event) (interface{}, error) {
 	b, err := json.Marshal(event)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	future := fsm.raft.Apply(b, RaftTimeOut)
 	if err := future.Error(); err != nil {
 		fsm.logger.Errorf("Encountered an error during Raft operation: %v", err)
-		return err
+		return nil, err
 	}
 
-	response := future.Response()
-	if err, ok := response.(error); ok {
-		fsm.logger.Errorf("Encountered an error during FSM operation", err)
-		return err
-	}
-
-	return nil
+	return future.Response(), nil
 }
 
 func (fsm *FiniteStateMachine) isRaftLeader() bool {

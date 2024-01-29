@@ -1,4 +1,4 @@
-package log
+package telemetry
 
 import (
 	"os"
@@ -6,6 +6,15 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
+
+type Logger interface {
+	Debugf(tmp string, args ...interface{})
+	Infof(tmp string, args ...interface{})
+	Warnf(tmp string, args ...interface{})
+	Errorf(tmp string, args ...interface{})
+	Fatalf(tmp string, args ...interface{})
+	Panicf(tmp string, args ...interface{})
+}
 
 type ZapLogger struct {
 	logger *zap.SugaredLogger

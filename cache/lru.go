@@ -35,7 +35,7 @@ type LRUCache struct {
 	// Unix time bucketed expiry map of cache entries
 	expiry map[int64]([]*list.Element)
 
-	// Lock manager for for concurrent access to subsets of key space in the expiry map
+	// Lock manager for concurrent access to subsets of key space in the expiry map
 	expiryLockManager LockManager
 
 	// Callback when a cache entry is evicted
@@ -74,7 +74,7 @@ func (lc *LRUCache) Get(key string) (Entry, bool) {
 		return e.Value.(*Item), true
 	}
 
-	return nil, false
+	return &Item{}, false
 }
 
 func (lc *LRUCache) Set(key string, value interface{}) bool {
@@ -111,7 +111,7 @@ func (lc *LRUCache) Set(key string, value interface{}) bool {
 		key, value := entry.Value.(*Item).Key(), entry.Value.(*Item).Value()
 		delete(lc.kv, key)
 		if lc.onEvict != nil {
-			lc.onEvict(key, value)
+			go lc.onEvict(key, value)
 		}
 	}
 	lc.lm.Unlock()
@@ -146,9 +146,19 @@ func (lc *LRUCache) Delete(key string) bool {
 
 func (lc *LRUCache) Purge() {
 	keys := lc.Keys()
+	var wg sync.WaitGroup
+
 	for _, k := range keys {
-		lc.Delete(k)
+		wg.Add(1)
+
+		go func(key string) {
+			defer wg.Done()
+
+			lc.Delete(key)
+		}(k)
 	}
+
+	wg.Wait()
 }
 
 func (lc *LRUCache) Peek(key string) (Entry, bool) {
@@ -160,7 +170,7 @@ func (lc *LRUCache) Peek(key string) (Entry, bool) {
 		return e.Value.(*Item), true
 	}
 
-	return nil, false
+	return &Item{}, false
 }
 
 func (lc *LRUCache) Keys() []string {
@@ -210,10 +220,10 @@ func (lc *LRUCache) runGarbageCollection(ctx context.Context) {
 				lock.Lock()
 				if l, ok := lc.expiry[timepoint]; ok {
 					for _, e := range l {
-						lc.Delete(e.Value.(*Item).Key())
+						go lc.Delete(e.Value.(*Item).Key())
 					}
+					delete(lc.expiry, timepoint)
 				}
-				delete(lc.expiry, timepoint)
 				lock.Unlock()
 			}
 		}

@@ -14,7 +14,7 @@ type Cache interface {
 	// Delete removes the given key from the cache, returns if key was contained
 	Delete(key string) bool
 
-	// Purge clears all entries in the cache
+	// Purge removes all keys currently in the cache
 	Purge()
 
 	// Peek returns the entry for the the given key if found without updating the cache's eviction policy

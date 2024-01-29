@@ -8,6 +8,7 @@
 
 ## Tech roadmap:
 - Raft consensus library: https://github.com/hashicorp/raft?tab=readme-ov-file
+- gRPC: https://grpc.io/
 - OpenTelemetry: https://opentelemetry.io/
 - Zap: https://github.com/uber-go/zap
 - Grafana (Loki + Tempo): https://grafana.com/
