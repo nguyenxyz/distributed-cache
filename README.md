@@ -17,8 +17,8 @@
 ## Design:
 ### nbox-api-server:
 -  Summary: Entry point into the box cluster
-### box:
--  Summary: In-memory key-value store
+### cache:
+-  Summary: Key-Value Cache
 ### fsm: 
 -  Summary: State machine replication
 ### kube:

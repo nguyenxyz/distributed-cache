@@ -1,8 +1,8 @@
-package box
+package cache
 
 import "time"
 
-var _ Record = (*Item)(nil)
+var _ Entry = (*Item)(nil)
 
 type Item struct {
 	key          string
@@ -30,7 +30,7 @@ func (i *Item) CreationTime() time.Time {
 }
 
 func (i *Item) TTL() time.Duration {
-	if i.setTTL < 0 {
+	if i.setTTL <= 0 {
 		return i.setTTL
 	}
 
