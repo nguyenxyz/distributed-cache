@@ -8,8 +8,8 @@ import (
 
 	"github.com/hashicorp/raft"
 
-	"github.com/ph-ngn/nanobox/box"
-	"github.com/ph-ngn/nanobox/util/log"
+	"github.com/ph-ngn/nanobox/cache"
+	"github.com/ph-ngn/nanobox/log"
 )
 
 const (
@@ -30,11 +30,19 @@ type Event struct {
 
 // FiniteStateMachine is a wrapper around Store and manages replication with Raft consensus
 type FiniteStateMachine struct {
-	box.Store
+	cache cache.Cache
 
 	raft *raft.Raft
 
 	logger log.Logger
+}
+
+func (fsm *FiniteStateMachine) Get(key string) (cache.Entry, bool) {
+	if !fsm.isRaftLeader() {
+		return fsm.cache.Peek(key)
+	}
+
+	return fsm.cache.Get(key)
 }
 
 func (fsm *FiniteStateMachine) Set(key string, value interface{}) error {
@@ -75,10 +83,10 @@ func (fsm *FiniteStateMachine) Apply(l *raft.Log) interface{} {
 
 	switch event.Operation {
 	case "set":
-		return fsm.Store.Set(event.Key, event.Value)
+		return fsm.cache.Set(event.Key, event.Value)
 
 	case "delete":
-		return fsm.Store.Delete(event.Key)
+		return fsm.cache.Delete(event.Key)
 
 	default:
 		return ErrUnsupportedOperation

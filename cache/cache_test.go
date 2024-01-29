@@ -1,11 +1,11 @@
-package box
+package cache
 
 import (
 	"reflect"
 	"testing"
 	"time"
 
-	"github.com/ph-ngn/nanobox/util/log"
+	"github.com/ph-ngn/nanobox/log"
 )
 
 func TestBoxGet(t *testing.T) {
