@@ -26,13 +26,13 @@ type LRUCache struct {
 	// Lock for thread-safe access to the lru linked list
 	lm sync.RWMutex
 
-	// Doubly linked list to keep track of the least recently used entries
+	// Doubly linked list to keep track of the least recently used cache entries
 	lru list.List
 
-	// Optional: Default time-to-live for entries in the kv map
+	// Optional: Default time-to-live for cache entries
 	ttl time.Duration
 
-	// Unix time bucketed expiry map of the entries
+	// Unix time bucketed expiry map of cache entries
 	expiry map[int64]([]*list.Element)
 
 	// Lock manager for for concurrent access to subsets of key space in the expiry map
@@ -142,6 +142,56 @@ func (lc *LRUCache) Delete(key string) bool {
 	}
 
 	return false
+}
+
+func (lc *LRUCache) Purge() {
+	keys := lc.Keys()
+	for _, k := range keys {
+		lc.Delete(k)
+	}
+}
+
+func (lc *LRUCache) Peek(key string) (Entry, bool) {
+	lock := lc.kvLockManager.Get(key)
+	lock.RLock()
+	defer lock.RUnlock()
+
+	if e, ok := lc.kv[key]; ok {
+		return e.Value.(*Item), true
+	}
+
+	return nil, false
+}
+
+func (lc *LRUCache) Keys() []string {
+	lc.lm.RLock()
+	defer lc.lm.RUnlock()
+
+	keys := make([]string, 0, lc.lru.Len())
+	for e := lc.lru.Front(); e != nil; e = e.Next() {
+		keys = append(keys, e.Value.(*Item).Key())
+	}
+
+	return keys
+}
+
+func (lc *LRUCache) Entries() []Entry {
+	lc.lm.RLock()
+	defer lc.lm.RUnlock()
+
+	entries := make([]Entry, 0, lc.lru.Len())
+	for e := lc.lru.Front(); e != nil; e = e.Next() {
+		entries = append(entries, e.Value.(*Item))
+	}
+
+	return entries
+}
+
+func (lc *LRUCache) Len() int {
+	lc.lm.RLock()
+	defer lc.lm.RUnlock()
+
+	return lc.lru.Len()
 }
 
 func (lc *LRUCache) runGarbageCollection(ctx context.Context) {
