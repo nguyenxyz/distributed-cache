@@ -5,6 +5,7 @@ import (
 	"context"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -13,15 +14,18 @@ var _ Cache = (*LRUCache)(nil)
 // EvictionCallBack is used to register a callback when a cache entry is evicted
 type EvictionCallBack func(key string, value interface{})
 
+// Bucket is a container for expirable elements for O(1) removal
+type Bucket map[string]*list.Element
+
 type LRUCache struct {
 	// The underlying kv map
 	kv map[string]*list.Element
 
-	// Adaptive lock manager for concurrent access to subsets of key space in kv map
+	// Adaptive lock manager for concurrent access to any key in key space in kv map
 	kvLockManager AdaptiveLockManager
 
 	// Optional: Capacity of the key-value storage
-	cap int
+	cap atomic.Int64
 
 	// Lock for thread-safe access to the lru linked list
 	lm sync.RWMutex
@@ -33,7 +37,7 @@ type LRUCache struct {
 	ttl time.Duration
 
 	// Unix time bucketed expiry map of cache entries
-	expiry map[int64]([]*list.Element)
+	expiry map[int64]Bucket
 
 	// Lock manager for concurrent access to subsets of key space in the expiry map
 	expiryLockManager LockManager
@@ -46,10 +50,12 @@ func NewLRU(ctx context.Context, options ...Option) *LRUCache {
 	lru := &LRUCache{
 		kv:                make(map[string]*list.Element),
 		kvLockManager:     AdaptiveLockManager{},
-		expiry:            make(map[int64][]*list.Element),
+		expiry:            make(map[int64]Bucket),
 		expiryLockManager: LockManager{},
+		ttl:               -1,
 	}
 
+	lru.cap.Store(-1)
 	for _, opt := range options {
 		opt(lru)
 	}
@@ -83,14 +89,11 @@ func (lc *LRUCache) Set(key string, value interface{}) bool {
 	defer lock.Unlock()
 
 	if e, ok := lc.kv[key]; ok {
-		item := e.Value.(*Item)
-		item.value = value
-		item.lastUpdated = time.Now()
+		timepoint := e.Value.(*Item).CreationTime().Add(lc.ttl).Unix()
+		lc.removeFromExpiryBucket(timepoint, key)
 		lc.lm.Lock()
-		lc.lru.MoveToFront(e)
+		lc.lru.Remove(e)
 		lc.lm.Unlock()
-
-		return false
 	}
 
 	now := time.Now()
@@ -104,12 +107,17 @@ func (lc *LRUCache) Set(key string, value interface{}) bool {
 
 	lc.lm.Lock()
 	lc.kv[key] = lc.lru.PushFront(item)
-	evict := lc.cap > 0 && lc.lru.Len() > lc.cap
-	if evict {
+	cap := lc.Cap()
+	evict := cap > 0 && lc.lru.Len() > cap
+	for evict && lc.lru.Len() > lc.Cap() {
 		entry := lc.lru.Back()
 		lc.lru.Remove(entry)
 		key, value := entry.Value.(*Item).Key(), entry.Value.(*Item).Value()
+		lock := lc.kvLockManager.Get(key)
+		lock.Lock()
 		delete(lc.kv, key)
+		lock.Unlock()
+
 		if lc.onEvict != nil {
 			go lc.onEvict(key, value)
 		}
@@ -120,11 +128,27 @@ func (lc *LRUCache) Set(key string, value interface{}) bool {
 		timepoint := now.Add(lc.ttl).Unix()
 		el := lc.expiryLockManager.Get(strconv.Itoa(int(timepoint)))
 		el.Lock()
-		lc.expiry[timepoint] = append(lc.expiry[timepoint], lc.kv[key])
+		lc.expiry[timepoint][key] = lc.kv[key]
 		el.Unlock()
 	}
 
 	return evict
+}
+
+func (lc *LRUCache) Update(key string, value interface{}) bool {
+	lock := lc.kvLockManager.Get(key)
+	lock.Lock()
+	defer lock.Unlock()
+
+	if e, ok := lc.kv[key]; ok {
+		item := e.Value.(*Item)
+		item.value = value
+		item.lastUpdated = time.Now()
+
+		return true
+	}
+
+	return false
 }
 
 func (lc *LRUCache) Delete(key string) bool {
@@ -141,6 +165,7 @@ func (lc *LRUCache) Delete(key string) bool {
 		return true
 	}
 
+	lc.kvLockManager.Remove(key)
 	return false
 }
 
@@ -204,6 +229,22 @@ func (lc *LRUCache) Len() int {
 	return lc.lru.Len()
 }
 
+func (lc *LRUCache) Cap() int {
+	return int(lc.cap.Load())
+}
+
+func (lc *LRUCache) Resize(cap int) {
+	lc.cap.Store(int64(cap))
+}
+
+func (lc *LRUCache) removeFromExpiryBucket(timepoint int64, key string) {
+	lock := lc.expiryLockManager.Get(strconv.Itoa(int(timepoint)))
+	lock.Lock()
+	defer lock.Unlock()
+
+	delete(lc.expiry[timepoint], key)
+}
+
 func (lc *LRUCache) runGarbageCollection(ctx context.Context) {
 	ticker := time.NewTicker(time.Second)
 
@@ -243,7 +284,7 @@ func WithDefaultTTL(ttl time.Duration) Option {
 func WithCapacity(cap int) Option {
 	return func(lc *LRUCache) {
 		if cap > 0 {
-			lc.cap = cap
+			lc.cap.Store(int64(cap))
 		}
 	}
 }

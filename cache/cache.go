@@ -8,8 +8,11 @@ type Cache interface {
 	// Get returns the entry for the given key if found
 	Get(key string) (Entry, bool)
 
-	// Set sets the value for the given key, returns if an eviction occured
+	// Set sets the value for the given key, overwrite if key exists, returns if an eviction occured
 	Set(key string, value interface{}) bool
+
+	// Update updates the value for the given key without resetting ttl, returns if key exists
+	Update(key string, value interface{}) bool
 
 	// Delete removes the given key from the cache, returns if key was contained
 	Delete(key string) bool
@@ -28,6 +31,12 @@ type Cache interface {
 
 	// Len returns the number of entries in the cache
 	Len() int
+
+	// Cap returns the current capacity of the cache
+	Cap() int
+
+	// Resize resizes the cache with the provided capacity, overflowing entries will be evicted
+	Resize(cap int)
 }
 
 type Entry interface {

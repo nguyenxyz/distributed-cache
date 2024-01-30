@@ -15,3 +15,5 @@ type AdaptiveLockManager struct {
 func (alm *AdaptiveLockManager) Get(key string) sync.RWMutex {
 	return sync.RWMutex{}
 }
+
+func (alm *AdaptiveLockManager) Remove(key string) {}
