@@ -16,15 +16,11 @@ type Logger interface {
 	Panicf(tmp string, args ...interface{})
 }
 
-type ZapLogger struct {
+type zapLogger struct {
 	logger *zap.SugaredLogger
 }
 
-type Config struct {
-	ServiceName, ServiceHost, LogFileName string
-}
-
-func NewZapLogger(cfg Config) *ZapLogger {
+func newZapLogger(serviceName, serviceHost, logFileName string) *zapLogger {
 	config := zap.NewProductionEncoderConfig()
 	config.TimeKey = "@timestamp"
 	config.MessageKey = "message"
@@ -32,42 +28,42 @@ func NewZapLogger(cfg Config) *ZapLogger {
 	config.EncodeTime = zapcore.ISO8601TimeEncoder
 	fileEncoder := zapcore.NewJSONEncoder(config)
 	consoleEncoder := zapcore.NewConsoleEncoder(config)
-	logFile, _ := os.OpenFile(cfg.LogFileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	logFile, _ := os.OpenFile(logFileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	defaultLogLevel := zapcore.DebugLevel
 	logFields := zap.Fields(
-		zap.String("service.name", cfg.ServiceName),
-		zap.String("service.host", cfg.ServiceHost),
+		zap.String("service.name", serviceName),
+		zap.String("service.host", serviceHost),
 	)
 	core := zapcore.NewTee(
 		zapcore.NewCore(fileEncoder, zapcore.AddSync(logFile), defaultLogLevel),
 		zapcore.NewCore(consoleEncoder, zapcore.AddSync(os.Stdout), defaultLogLevel),
 	)
 	logger := zap.New(core, zap.AddCaller(), zap.AddStacktrace(zapcore.ErrorLevel), logFields)
-	return &ZapLogger{
+	return &zapLogger{
 		logger: logger.Sugar(),
 	}
 }
 
-func (zl *ZapLogger) Debugf(tmp string, args ...interface{}) {
+func (zl *zapLogger) Debugf(tmp string, args ...interface{}) {
 	zl.logger.Debugf(tmp, args...)
 }
 
-func (zl *ZapLogger) Infof(tmp string, args ...interface{}) {
+func (zl *zapLogger) Infof(tmp string, args ...interface{}) {
 	zl.logger.Infof(tmp, args...)
 }
 
-func (zl *ZapLogger) Warnf(tmp string, args ...interface{}) {
+func (zl *zapLogger) Warnf(tmp string, args ...interface{}) {
 	zl.logger.Warnf(tmp, args...)
 }
 
-func (zl *ZapLogger) Errorf(tmp string, args ...interface{}) {
+func (zl *zapLogger) Errorf(tmp string, args ...interface{}) {
 	zl.logger.Errorf(tmp, args...)
 }
 
-func (zl *ZapLogger) Fatalf(tmp string, args ...interface{}) {
+func (zl *zapLogger) Fatalf(tmp string, args ...interface{}) {
 	zl.logger.Fatalf(tmp, args...)
 }
 
-func (zl *ZapLogger) Panicf(tmp string, args ...interface{}) {
+func (zl *zapLogger) Panicf(tmp string, args ...interface{}) {
 	zl.logger.Panicf(tmp, args...)
 }

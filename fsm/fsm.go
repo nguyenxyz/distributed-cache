@@ -33,13 +33,11 @@ type FiniteStateMachine struct {
 	cache.Cache
 
 	raft *raft.Raft
-
-	logger telemetry.Logger
 }
 
 func (fsm *FiniteStateMachine) Set(key string, value interface{}) (bool, error) {
 	if !fsm.isRaftLeader() {
-		fsm.logger.Errorf("Calling Set on follower")
+		telemetry.GetLogger().Errorf("Calling Set on follower")
 		return false, ErrNotRaftLeader
 	}
 
@@ -51,7 +49,7 @@ func (fsm *FiniteStateMachine) Set(key string, value interface{}) (bool, error) 
 
 	res, err := fsm.replicateAndApplyOnQuorum(event)
 	if err != nil {
-		fsm.logger.Debugf("Succesfully replicate and apply event: %+v", event)
+		telemetry.GetLogger().Debugf("Succesfully replicate and apply event: %+v", event)
 		return res.(bool), nil
 	}
 
@@ -60,7 +58,7 @@ func (fsm *FiniteStateMachine) Set(key string, value interface{}) (bool, error) 
 
 func (fsm *FiniteStateMachine) Delete(key string) (bool, error) {
 	if !fsm.isRaftLeader() {
-		fsm.logger.Errorf("Calling Delete on follower")
+		telemetry.GetLogger().Errorf("Calling Delete on follower")
 		return false, ErrNotRaftLeader
 	}
 
@@ -71,7 +69,7 @@ func (fsm *FiniteStateMachine) Delete(key string) (bool, error) {
 
 	res, err := fsm.replicateAndApplyOnQuorum(event)
 	if err != nil {
-		fsm.logger.Debugf("Succesfully replicate and apply event: %+v", event)
+		telemetry.GetLogger().Debugf("Succesfully replicate and apply event: %+v", event)
 		return res.(bool), nil
 	}
 
@@ -80,7 +78,7 @@ func (fsm *FiniteStateMachine) Delete(key string) (bool, error) {
 
 func (fsm *FiniteStateMachine) Purge() error {
 	if !fsm.isRaftLeader() {
-		fsm.logger.Errorf("Calling Purge on follower")
+		telemetry.GetLogger().Errorf("Calling Purge on follower")
 		return ErrNotRaftLeader
 	}
 
@@ -90,7 +88,7 @@ func (fsm *FiniteStateMachine) Purge() error {
 
 	_, err := fsm.replicateAndApplyOnQuorum(event)
 	if err != nil {
-		fsm.logger.Debugf("Succesfully replicate and apply event: %+v", event)
+		telemetry.GetLogger().Debugf("Succesfully replicate and apply event: %+v", event)
 	}
 
 	return err
@@ -101,7 +99,7 @@ func (fsm *FiniteStateMachine) Apply(l *raft.Log) interface{} {
 	var event Event
 	if err := json.Unmarshal(l.Data, &event); err != nil {
 		// need to exit and recover here so the fsm get a chance to reapply the event
-		fsm.logger.Fatalf("Failed to unmarshal an event from the event log: %v", err)
+		telemetry.GetLogger().Fatalf("Failed to unmarshal an event from the event log: %v", err)
 	}
 
 	switch event.Op {
@@ -137,7 +135,7 @@ func (fsm *FiniteStateMachine) replicateAndApplyOnQuorum(event Event) (interface
 
 	future := fsm.raft.Apply(b, RaftTimeOut)
 	if err := future.Error(); err != nil {
-		fsm.logger.Errorf("Encountered an error during Raft operation: %v", err)
+		telemetry.GetLogger().Errorf("Encountered an error during Raft operation: %v", err)
 		return nil, err
 	}
 
