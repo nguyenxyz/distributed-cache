@@ -38,7 +38,7 @@ type FiniteStateMachine struct {
 
 func (fsm *FiniteStateMachine) Set(key string, value interface{}) (bool, error) {
 	if !fsm.isRaftLeader() {
-		telemetry.GetLogger().Errorf("Calling Set on follower")
+		telemetry.Log().Errorf("Calling Set on follower")
 		return false, ErrNotRaftLeader
 	}
 
@@ -50,7 +50,7 @@ func (fsm *FiniteStateMachine) Set(key string, value interface{}) (bool, error) 
 
 	res, err := fsm.replicateAndApplyOnQuorum(event)
 	if err != nil {
-		telemetry.GetLogger().Debugf("Succesfully replicate and apply event: %+v", event)
+		telemetry.Log().Debugf("Succesfully replicate and apply event: %+v", event)
 		return res.(bool), nil
 	}
 
@@ -59,7 +59,7 @@ func (fsm *FiniteStateMachine) Set(key string, value interface{}) (bool, error) 
 
 func (fsm *FiniteStateMachine) Delete(key string) (bool, error) {
 	if !fsm.isRaftLeader() {
-		telemetry.GetLogger().Errorf("Calling Delete on follower")
+		telemetry.Log().Errorf("Calling Delete on follower")
 		return false, ErrNotRaftLeader
 	}
 
@@ -70,7 +70,7 @@ func (fsm *FiniteStateMachine) Delete(key string) (bool, error) {
 
 	res, err := fsm.replicateAndApplyOnQuorum(event)
 	if err != nil {
-		telemetry.GetLogger().Debugf("Succesfully replicate and apply event: %+v", event)
+		telemetry.Log().Debugf("Succesfully replicate and apply event: %+v", event)
 		return res.(bool), nil
 	}
 
@@ -79,7 +79,7 @@ func (fsm *FiniteStateMachine) Delete(key string) (bool, error) {
 
 func (fsm *FiniteStateMachine) Purge() error {
 	if !fsm.isRaftLeader() {
-		telemetry.GetLogger().Errorf("Calling Purge on follower")
+		telemetry.Log().Errorf("Calling Purge on follower")
 		return ErrNotRaftLeader
 	}
 
@@ -89,7 +89,7 @@ func (fsm *FiniteStateMachine) Purge() error {
 
 	_, err := fsm.replicateAndApplyOnQuorum(event)
 	if err != nil {
-		telemetry.GetLogger().Debugf("Succesfully replicate and apply event: %+v", event)
+		telemetry.Log().Debugf("Succesfully replicate and apply event: %+v", event)
 	}
 
 	return err
@@ -100,7 +100,7 @@ func (fsm *FiniteStateMachine) Apply(l *raft.Log) interface{} {
 	var event Event
 	if err := json.Unmarshal(l.Data, &event); err != nil {
 		// need to exit and recover here so the fsm get a chance to reapply the event
-		telemetry.GetLogger().Fatalf("Failed to unmarshal an event from the event log: %v", err)
+		telemetry.Log().Fatalf("Failed to unmarshal an event from the event log: %v", err)
 	}
 
 	switch event.Op {
@@ -120,23 +120,23 @@ func (fsm *FiniteStateMachine) Apply(l *raft.Log) interface{} {
 }
 
 func (fsm *FiniteStateMachine) Join(nodeID, addr string) error {
-	telemetry.GetLogger().Infof("Received join request from node %s at %s", nodeID, addr)
+	telemetry.Log().Infof("Received join request from node %s at %s", nodeID, addr)
 	configFuture := fsm.raft.GetConfiguration()
 	if err := configFuture.Error(); err != nil {
-		telemetry.GetLogger().Errorf("Failed to get raft configuration: %v", err)
+		telemetry.Log().Errorf("Failed to get raft configuration: %v", err)
 		return err
 	}
 
 	for _, srv := range configFuture.Configuration().Servers {
 		if srv.ID == raft.ServerID(nodeID) || srv.Address == raft.ServerAddress(addr) {
 			if srv.ID == raft.ServerID(nodeID) && srv.Address == raft.ServerAddress(addr) {
-				telemetry.GetLogger().Infof("node %s at %s is already a member", nodeID, addr)
+				telemetry.Log().Infof("node %s at %s is already a member", nodeID, addr)
 				return nil
 			}
 
 			future := fsm.raft.RemoveServer(srv.ID, 0, ConfigChangeTimeOut)
 			if err := future.Error(); err != nil {
-				telemetry.GetLogger().Errorf("Failed to remove existing node %s at %s: %v", nodeID, addr, err)
+				telemetry.Log().Errorf("Failed to remove existing node %s at %s: %v", nodeID, addr, err)
 				return err
 			}
 		}
@@ -144,10 +144,11 @@ func (fsm *FiniteStateMachine) Join(nodeID, addr string) error {
 
 	future := fsm.raft.AddVoter(raft.ServerID(nodeID), raft.ServerAddress(addr), 0, ConfigChangeTimeOut)
 	if err := future.Error(); err != nil {
-		telemetry.GetLogger().Errorf("Failed to join node %s at %s: %v", nodeID, addr, err)
+		telemetry.Log().Errorf("Failed to join node %s at %s: %v", nodeID, addr, err)
+		return err
 	}
 
-	telemetry.GetLogger().Infof("Successfully join node %s at %s", nodeID, addr)
+	telemetry.Log().Infof("Successfully join node %s at %s", nodeID, addr)
 	return nil
 }
 
@@ -168,7 +169,7 @@ func (fsm *FiniteStateMachine) replicateAndApplyOnQuorum(event Event) (interface
 
 	future := fsm.raft.Apply(b, RaftTimeOut)
 	if err := future.Error(); err != nil {
-		telemetry.GetLogger().Errorf("Encountered an error during Raft operation: %v", err)
+		telemetry.Log().Errorf("Encountered an error during Raft operation: %v", err)
 		return nil, err
 	}
 

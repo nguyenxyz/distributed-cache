@@ -29,8 +29,12 @@ func setupOTelSDK(ctx context.Context) (shutdown func(context.Context) error, er
 		err = errors.Join(inErr, shutdown(ctx))
 	}
 
-	prop := newPropagator()
-	otel.SetTextMapPropagator(prop)
+	otel.SetTextMapPropagator(
+		propagation.NewCompositeTextMapPropagator(
+			propagation.TraceContext{},
+			propagation.Baggage{},
+		),
+	)
 
 	tracerProvider, err := newTraceProvider()
 	if err != nil {
@@ -49,13 +53,6 @@ func setupOTelSDK(ctx context.Context) (shutdown func(context.Context) error, er
 	otel.SetMeterProvider(meterProvider)
 
 	return
-}
-
-func newPropagator() propagation.TextMapPropagator {
-	return propagation.NewCompositeTextMapPropagator(
-		propagation.TraceContext{},
-		propagation.Baggage{},
-	)
 }
 
 func newTraceProvider() (*trace.TracerProvider, error) {

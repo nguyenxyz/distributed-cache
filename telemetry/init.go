@@ -35,17 +35,18 @@ func Init(ctx context.Context) (CancelFunc, error) {
 	meter = otel.Meter(serviceName, metric.WithInstrumentationAttributes(
 		attribute.String("service.host", serviceHost)),
 	)
+
 	return otelShutdown, nil
 }
 
-func GetLogger() Logger {
+func Log() Logger {
 	return logger
 }
 
-func GetTracer() trace.Tracer {
+func Trace() trace.Tracer {
 	return tracer
 }
 
-func GetMeter() metric.Meter {
+func Metric() metric.Meter {
 	return meter
 }
