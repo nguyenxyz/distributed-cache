@@ -13,7 +13,8 @@ import (
 )
 
 const (
-	RaftTimeOut = 15 * time.Second
+	RaftTimeOut         = 15 * time.Second
+	ConfigChangeTimeOut = 0
 )
 
 var (
@@ -116,6 +117,38 @@ func (fsm *FiniteStateMachine) Apply(l *raft.Log) interface{} {
 	default:
 		return ErrUnsupportedOperation
 	}
+}
+
+func (fsm *FiniteStateMachine) Join(nodeID, addr string) error {
+	telemetry.GetLogger().Infof("Received join request from node %s at %s", nodeID, addr)
+	configFuture := fsm.raft.GetConfiguration()
+	if err := configFuture.Error(); err != nil {
+		telemetry.GetLogger().Errorf("Failed to get raft configuration: %v", err)
+		return err
+	}
+
+	for _, srv := range configFuture.Configuration().Servers {
+		if srv.ID == raft.ServerID(nodeID) || srv.Address == raft.ServerAddress(addr) {
+			if srv.ID == raft.ServerID(nodeID) && srv.Address == raft.ServerAddress(addr) {
+				telemetry.GetLogger().Infof("node %s at %s is already a member", nodeID, addr)
+				return nil
+			}
+
+			future := fsm.raft.RemoveServer(srv.ID, 0, ConfigChangeTimeOut)
+			if err := future.Error(); err != nil {
+				telemetry.GetLogger().Errorf("Failed to remove existing node %s at %s: %v", nodeID, addr, err)
+				return err
+			}
+		}
+	}
+
+	future := fsm.raft.AddVoter(raft.ServerID(nodeID), raft.ServerAddress(addr), 0, ConfigChangeTimeOut)
+	if err := future.Error(); err != nil {
+		telemetry.GetLogger().Errorf("Failed to join node %s at %s: %v", nodeID, addr, err)
+	}
+
+	telemetry.GetLogger().Infof("Successfully join node %s at %s", nodeID, addr)
+	return nil
 }
 
 func (fsm *FiniteStateMachine) Snapshot() (raft.FSMSnapshot, error) {
