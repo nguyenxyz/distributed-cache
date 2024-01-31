@@ -11,18 +11,22 @@ import (
 
 var _ Cache = (*LRUCache)(nil)
 
-// EvictionCallBack is used to register a callback when a cache entry is evicted
-type EvictionCallBack func(key string, value interface{})
+const LockStripeSize = 69
 
-// Bucket is a container for expirable elements for O(1) removal
-type Bucket map[string]*list.Element
+type (
+	// EvictionCallBack is used to register a callback when a cache entry is evicted
+	EvictionCallBack func(key string, value interface{})
+
+	// Bucket is a container for expirable elements for O(1) removal
+	Bucket map[string]*list.Element
+)
 
 type LRUCache struct {
 	// The underlying kv map
 	kv map[string]*list.Element
 
 	// Adaptive lock manager for concurrent access to any key in key space in kv map
-	kvLockManager AdaptiveLockManager
+	kvLockManager *AdaptiveLockManager
 
 	// Optional: Capacity of the key-value storage
 	cap atomic.Int64
@@ -40,7 +44,7 @@ type LRUCache struct {
 	expiry map[int64]Bucket
 
 	// Lock manager for concurrent access to subsets of key space in the expiry map
-	expiryLockManager LockManager
+	expiryLockManager *LockManager
 
 	// Callback when a cache entry is evicted
 	onEvict EvictionCallBack
@@ -49,9 +53,9 @@ type LRUCache struct {
 func NewLRU(ctx context.Context, options ...Option) *LRUCache {
 	lru := &LRUCache{
 		kv:                make(map[string]*list.Element),
-		kvLockManager:     AdaptiveLockManager{},
+		kvLockManager:     NewAdaptiveLockManager(),
 		expiry:            make(map[int64]Bucket),
-		expiryLockManager: LockManager{},
+		expiryLockManager: NewLockManager(LockStripeSize),
 		ttl:               -1,
 	}
 

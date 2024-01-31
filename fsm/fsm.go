@@ -36,6 +36,14 @@ type FiniteStateMachine struct {
 	raft *raft.Raft
 }
 
+func (fsm *FiniteStateMachine) Get(key string) (cache.Entry, bool) {
+	if !fsm.isRaftLeader() {
+		return fsm.Cache.Peek(key)
+	}
+
+	return fsm.Cache.Get(key)
+}
+
 func (fsm *FiniteStateMachine) Set(key string, value interface{}) (bool, error) {
 	if !fsm.isRaftLeader() {
 		telemetry.Log().Errorf("Calling Set on follower")
