@@ -2,7 +2,11 @@ package cache
 
 import (
 	"context"
+	"crypto/rand"
+	"math"
+	"math/big"
 	"reflect"
+	"strconv"
 	"testing"
 )
 
@@ -55,9 +59,9 @@ func TestLRUSetGet(t *testing.T) {
 	}
 
 	lru := NewLRU(context.Background())
-	for idx, tc := range testCases {
+	for _, tc := range testCases {
 		t.Run(tc.desc, func(t *testing.T) {
-			if idx < len(testCases)-1 {
+			if tc.shouldExist {
 				lru.Set(tc.key, tc.value)
 			}
 
@@ -71,4 +75,65 @@ func TestLRUSetGet(t *testing.T) {
 
 		})
 	}
+}
+
+func BenchmarkLRUHitMiss_Random(b *testing.B) {
+	lru := NewLRU(context.Background(), WithCapacity(8192))
+	trace := make([]string, b.N)
+	for i := 0; i < len(trace); i++ {
+		trace[i] = randKeyFromInt64(b, 32768)
+	}
+
+	b.ResetTimer()
+	var hit, miss int
+	for i := 0; i < b.N; i++ {
+		if i%2 == 0 {
+			lru.Set(trace[i], trace[i])
+		} else {
+			if _, ok := lru.Get(trace[i]); ok {
+				hit++
+			} else {
+				miss++
+			}
+		}
+	}
+
+	b.Logf("hit: %d, miss: %d, ratio %f", hit, miss, float64(hit)/float64(miss))
+}
+
+func BenchmarkLRUHistMiss_Frequency(b *testing.B) {
+	lru := NewLRU(context.Background(), WithCapacity(8192))
+	trace := make([]string, b.N)
+	for i := 0; i < len(trace); i++ {
+		if i%2 == 0 {
+			trace[i] = randKeyFromInt64(b, 16384)
+		} else {
+			trace[i] = randKeyFromInt64(b, 32768)
+		}
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		lru.Set(trace[i], trace[i])
+	}
+
+	var hit, miss int
+	for i := 0; i < b.N; i++ {
+		if _, ok := lru.Get(trace[i]); ok {
+			hit++
+		} else {
+			miss++
+		}
+	}
+
+	b.Logf("hit: %d, miss: %d, ratio %f", hit, miss, float64(hit)/float64(miss))
+}
+
+func randKeyFromInt64(tb testing.TB, mod int) string {
+	out, err := rand.Int(rand.Reader, big.NewInt(math.MaxInt64))
+	if err != nil {
+		tb.Fatal(err)
+	}
+
+	return strconv.Itoa(int(out.Int64()) % mod)
 }

@@ -238,6 +238,9 @@ func (lc *LRUCache) Cap() int {
 }
 
 func (lc *LRUCache) Resize(cap int) {
+	if cap <= 0 {
+		cap = -1
+	}
 	lc.cap.Store(int64(cap))
 }
 
