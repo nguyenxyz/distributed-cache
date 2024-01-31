@@ -3,6 +3,7 @@ package cache
 import (
 	"container/list"
 	"context"
+	"hash/maphash"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -25,8 +26,8 @@ type LRUCache struct {
 	// The underlying kv map
 	kv map[string]*list.Element
 
-	// Adaptive lock manager for concurrent access to any key in key space in kv map
-	kvLockManager *AdaptiveLockManager
+	// Lock manager for concurrent access to subsets of key space in kv map
+	kvLockManager *LockManager
 
 	// Optional: Capacity of the key-value storage
 	cap atomic.Int64
@@ -53,7 +54,7 @@ type LRUCache struct {
 func NewLRU(ctx context.Context, options ...Option) *LRUCache {
 	lru := &LRUCache{
 		kv:                make(map[string]*list.Element),
-		kvLockManager:     NewAdaptiveLockManager(),
+		kvLockManager:     NewLockManager(LockStripeSize),
 		expiry:            make(map[int64]Bucket),
 		expiryLockManager: NewLockManager(LockStripeSize),
 		ttl:               -1,
@@ -90,7 +91,6 @@ func (lc *LRUCache) Get(key string) (Entry, bool) {
 func (lc *LRUCache) Set(key string, value interface{}) bool {
 	lock := lc.kvLockManager.Get(key)
 	lock.Lock()
-	defer lock.Unlock()
 
 	if e, ok := lc.kv[key]; ok {
 		timepoint := e.Value.(*Item).CreationTime().Add(lc.ttl).Unix()
@@ -111,6 +111,7 @@ func (lc *LRUCache) Set(key string, value interface{}) bool {
 
 	lc.lm.Lock()
 	lc.kv[key] = lc.lru.PushFront(item)
+	lock.Unlock()
 	cap := lc.Cap()
 	evict := cap > 0 && lc.lru.Len() > cap
 	for evict && lc.lru.Len() > lc.Cap() {
@@ -169,7 +170,6 @@ func (lc *LRUCache) Delete(key string) bool {
 		return true
 	}
 
-	lc.kvLockManager.Remove(key)
 	return false
 }
 
@@ -300,4 +300,27 @@ func WithEvictionCallback(cb EvictionCallBack) Option {
 	return func(lc *LRUCache) {
 		lc.onEvict = cb
 	}
+}
+
+type LockManager struct {
+	locks []*sync.RWMutex
+	seed  maphash.Seed
+}
+
+func NewLockManager(size int) *LockManager {
+	lm := &LockManager{
+		locks: make([]*sync.RWMutex, size),
+		seed:  maphash.MakeSeed(),
+	}
+
+	for idx := range lm.locks {
+		lm.locks[idx] = new(sync.RWMutex)
+	}
+
+	return lm
+}
+
+func (lm *LockManager) Get(key string) *sync.RWMutex {
+	idx := maphash.String(lm.seed, key) % uint64(len(lm.locks))
+	return lm.locks[idx]
 }
