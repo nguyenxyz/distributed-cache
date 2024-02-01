@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"reflect"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 )
@@ -141,6 +142,33 @@ func BenchmarkLRUHitMiss_Random(b *testing.B) {
 	}
 
 	b.Logf("hit: %d, miss: %d, ratio %f", hit, miss, float64(hit)/float64(miss))
+}
+
+func TestLRUSameKeyConcurrentWrite(t *testing.T) {
+	lru := NewLRU(context.Background())
+	var wg sync.WaitGroup
+
+	numKeys := 2
+	for i := 0; i < 1000; i++ {
+		wg.Add(1)
+
+		go func(key int) {
+			defer wg.Done()
+
+			k := strconv.Itoa(key % numKeys)
+			lru.Set(k, k)
+		}(i)
+	}
+
+	wg.Wait()
+	if size := lru.Size(); size != numKeys {
+		t.Errorf("Expected size: %d, got %d", numKeys, size)
+	}
+
+	lru.Purge()
+	if size := lru.Size(); size != 0 {
+		t.Errorf("Expected cache to be clear, got %d items", size)
+	}
 }
 
 func BenchmarkLRUHistMiss_Frequency(b *testing.B) {

@@ -10,8 +10,6 @@ import (
 
 var _ Cache = (*LRUCache)(nil)
 
-const LockStripeSize = 69
-
 type (
 	// EvictionCallBack is used to register a callback when a cache entry is evicted
 	EvictionCallBack func(key string, value interface{})
@@ -27,7 +25,7 @@ type LRUCache struct {
 	// The underlying kv map
 	kv sync.Map
 
-	// Optional: Capacity of the key-value storage
+	// Optional: Capacity of the cache
 	cap atomic.Int64
 
 	// Mutex for access to the lru linked list
@@ -79,20 +77,27 @@ func (lc *LRUCache) Set(key string, value interface{}) bool {
 		expiry = now.Add(ttl)
 	}
 
+	// not safe when there's multiple concurrent writes to the same key
+	// value will be overwritten in kv but still remains in lru
+	// (benchmark is 4+)
 	lc.lm.Lock()
-	lc.kv.Store(key, lc.lru.PushFront(&Item{
-		key:          key,
-		value:        value,
-		lastUpdated:  now,
-		creationTime: now,
-		expiryTime:   expiry,
-	}))
+	// This is for fixing the mentioned problem. need to check again
+	if _, ok := lc.kv.Load(key); !ok {
+		lc.kv.Store(key, lc.lru.PushFront(&Item{
+			key:          key,
+			value:        value,
+			lastUpdated:  now,
+			creationTime: now,
+			expiryTime:   expiry,
+		}))
+	}
+
 	lc.lm.Unlock()
 
 	if !expiry.IsZero() {
 		timepoint := expiry.Unix()
 		bucket, _ := lc.expiry.LoadOrStore(timepoint, new(sync.Map))
-		bucket.(*sync.Map).Store(key, key)
+		bucket.(*sync.Map).Store(key, nil)
 	}
 
 	return overwritten
@@ -126,6 +131,7 @@ func (lc *LRUCache) Delete(key string) bool {
 		lc.lm.Lock()
 		lc.lru.Remove(element)
 		lc.lm.Unlock()
+
 		return true
 	}
 
@@ -133,20 +139,16 @@ func (lc *LRUCache) Delete(key string) bool {
 }
 
 func (lc *LRUCache) Purge() {
-	keys := lc.Keys()
-	var wg sync.WaitGroup
-
-	for _, k := range keys {
-		wg.Add(1)
-
-		go func(key string) {
-			defer wg.Done()
-
-			lc.Delete(key)
-		}(k)
+	callback := func(k, v interface{}) bool {
+		key, value := k.(string), v.(*list.Element).Value.(*Item).Value()
+		lc.Delete(key)
+		if lc.onEvict != nil {
+			go lc.onEvict(key, value)
+		}
+		return true
 	}
 
-	wg.Wait()
+	lc.kv.Range(callback)
 }
 
 func (lc *LRUCache) Peek(key string) (Entry, bool) {
@@ -181,7 +183,7 @@ func (lc *LRUCache) Entries() []Entry {
 	return entries
 }
 
-func (lc *LRUCache) Len() int {
+func (lc *LRUCache) Size() int {
 	lc.lm.RLock()
 	defer lc.lm.RUnlock()
 
@@ -203,7 +205,6 @@ func (lc *LRUCache) UpdateDefaultTTL(ttl time.Duration) {
 	if ttl <= 0 {
 		ttl = -1
 	}
-
 	lc.ttl.Store(ttl.Nanoseconds())
 }
 
@@ -213,9 +214,8 @@ func (lc *LRUCache) DefaultTTL() time.Duration {
 
 func (lc *LRUCache) runGarbageCollection(ctx context.Context) {
 	ticker := time.NewTicker(time.Second)
-
-	callback := func(key, value interface{}) bool {
-		lc.Delete(key.(string))
+	callback := func(k, v interface{}) bool {
+		lc.Delete(k.(string))
 		return true
 	}
 

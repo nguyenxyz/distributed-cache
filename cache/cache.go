@@ -29,8 +29,8 @@ type Cache interface {
 	// Values returns a slice of the entries in the cache
 	Entries() []Entry
 
-	// Len returns the number of entries in the cache
-	Len() int
+	// Size returns the number of entries in the cache
+	Size() int
 
 	// Cap returns the current capacity of the cache
 	Cap() int
