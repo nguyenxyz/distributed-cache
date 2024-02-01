@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strconv"
 	"testing"
+	"time"
 )
 
 func TestLRUSetGet(t *testing.T) {
@@ -73,6 +74,47 @@ func TestLRUSetGet(t *testing.T) {
 				t.Errorf("Expected value: %v, got %v", tc.value, entry.Value())
 			}
 
+		})
+	}
+}
+
+func TestLRUGarbageCollection(t *testing.T) {
+	testCases := []struct {
+		desc, key   string
+		ttl, sleep  time.Duration
+		shouldExist bool
+	}{
+		{
+			desc:        "Item with ttl of 2s should expire after 2s",
+			ttl:         2 * time.Second,
+			sleep:       2 * time.Second,
+			shouldExist: false,
+		},
+		{
+			desc:        "Item with ttl of 4s should still exist after 3s",
+			ttl:         4 * time.Second,
+			sleep:       3 * time.Second,
+			shouldExist: true,
+		},
+		{
+			// the garbage collection process will clean the "1s ahead" bucket
+			// so at the time the item is added, it's has already started cleaning
+			// the bucket the item is supposed to be in, thus the item will be neglected
+			desc:        "Item with ttl of 1s should miss the collection cycle",
+			ttl:         1 * time.Second,
+			sleep:       2 * time.Second,
+			shouldExist: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.desc, func(t *testing.T) {
+			lru := NewLRU(context.Background(), WithDefaultTTL(tc.ttl))
+			lru.Set(tc.key, tc.key)
+			time.Sleep(tc.sleep)
+			if _, ok := lru.Get(tc.key); ok != tc.shouldExist {
+				t.Errorf("Expected key existence: %t, got %t", tc.shouldExist, ok)
+			}
 		})
 	}
 }

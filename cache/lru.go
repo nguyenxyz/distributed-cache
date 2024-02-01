@@ -3,8 +3,6 @@ package cache
 import (
 	"container/list"
 	"context"
-	"fmt"
-	"hash/maphash"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -28,7 +26,6 @@ type (
 type LRUCache struct {
 	// The underlying kv map
 	kv sync.Map
-	// kv map[string]*list.Element
 
 	// Optional: Capacity of the key-value storage
 	cap atomic.Int64
@@ -218,7 +215,6 @@ func (lc *LRUCache) runGarbageCollection(ctx context.Context) {
 	ticker := time.NewTicker(time.Second)
 
 	callback := func(key, value interface{}) bool {
-		fmt.Println("HELLO")
 		lc.Delete(key.(string))
 		return true
 	}
@@ -261,27 +257,4 @@ func WithEvictionCallback(cb EvictionCallBack) Option {
 	return func(lc *LRUCache) {
 		lc.onEvict = cb
 	}
-}
-
-type LockManager struct {
-	locks []*sync.RWMutex
-	seed  maphash.Seed
-}
-
-func NewLockManager(size int) *LockManager {
-	lm := &LockManager{
-		locks: make([]*sync.RWMutex, size),
-		seed:  maphash.MakeSeed(),
-	}
-
-	for idx := range lm.locks {
-		lm.locks[idx] = new(sync.RWMutex)
-	}
-
-	return lm
-}
-
-func (lm *LockManager) Get(key string) *sync.RWMutex {
-	idx := maphash.String(lm.seed, key) % uint64(len(lm.locks))
-	return lm.locks[idx]
 }
