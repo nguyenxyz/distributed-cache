@@ -35,7 +35,7 @@ type LRUCache struct {
 	// Optional: Capacity of the key-value storage
 	cap atomic.Int64
 
-	// Lock for thread-safe access to the lru linked list
+	// Mutex for access to the lru linked list
 	lm sync.RWMutex
 
 	// Doubly linked list to keep track of the least recently used cache entries
@@ -68,10 +68,7 @@ func NewLRU(ctx context.Context, options ...Option) *LRUCache {
 		opt(lru)
 	}
 
-	if lru.ttl.Load() > 0 {
-		lru.runGarbageCollection(ctx)
-	}
-
+	lru.runGarbageCollection(ctx)
 	return lru
 }
 
@@ -246,6 +243,7 @@ func (lc *LRUCache) UpdateDefaultTTL(ttl time.Duration) {
 	if ttl <= 0 {
 		ttl = -1
 	}
+
 	lc.ttl.Store(ttl.Nanoseconds())
 }
 
