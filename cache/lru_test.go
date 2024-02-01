@@ -2,7 +2,7 @@ package cache
 
 import (
 	"context"
-	"crypto/rand"
+	crand "crypto/rand"
 	"math"
 	"math/big"
 	"reflect"
@@ -130,7 +130,7 @@ func BenchmarkLRUHistMiss_Frequency(b *testing.B) {
 }
 
 func randKeyFromInt64(tb testing.TB, mod int) string {
-	out, err := rand.Int(rand.Reader, big.NewInt(math.MaxInt64))
+	out, err := crand.Int(crand.Reader, big.NewInt(math.MaxInt64))
 	if err != nil {
 		tb.Fatal(err)
 	}

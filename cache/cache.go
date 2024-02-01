@@ -8,7 +8,7 @@ type Cache interface {
 	// Get returns the entry for the given key if found
 	Get(key string) (Entry, bool)
 
-	// Set sets the value for the given key, overwrite if key exists, returns if an eviction occured
+	// Set sets the value for the given key, overwrite if key exists, returns if key is overwritten
 	Set(key string, value interface{}) bool
 
 	// Update updates the value for the given key without resetting ttl, returns if key exists

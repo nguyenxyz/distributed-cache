@@ -3,8 +3,8 @@ package cache
 import (
 	"container/list"
 	"context"
+	"fmt"
 	"hash/maphash"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -27,10 +27,8 @@ type (
 
 type LRUCache struct {
 	// The underlying kv map
-	kv map[string]*list.Element
-
-	// Lock manager for concurrent access to subsets of key space in kv map
-	kvLockManager *LockManager
+	kv sync.Map
+	// kv map[string]*list.Element
 
 	// Optional: Capacity of the key-value storage
 	cap atomic.Int64
@@ -45,23 +43,14 @@ type LRUCache struct {
 	ttl atomic.Int64
 
 	// Unix time bucketed expiry map of cache entries
-	expiry map[int64]Bucket
-
-	// Lock manager for concurrent access to subsets of key space in the expiry map
-	expiryLockManager *LockManager
+	expiry sync.Map
 
 	// Callback when a cache entry is evicted
 	onEvict EvictionCallBack
 }
 
 func NewLRU(ctx context.Context, options ...Option) *LRUCache {
-	lru := &LRUCache{
-		kv:                make(map[string]*list.Element),
-		kvLockManager:     NewLockManager(LockStripeSize),
-		expiry:            make(map[int64]Bucket),
-		expiryLockManager: NewLockManager(LockStripeSize),
-	}
-
+	lru := &LRUCache{}
 	lru.cap.Store(-1)
 	lru.ttl.Store(-1)
 	for _, opt := range options {
@@ -73,76 +62,53 @@ func NewLRU(ctx context.Context, options ...Option) *LRUCache {
 }
 
 func (lc *LRUCache) Get(key string) (Entry, bool) {
-	kvm := lc.kvLockManager.Get(key)
-	kvm.RLock()
-	defer kvm.RUnlock()
-
-	if e, ok := lc.kv[key]; ok {
+	if v, ok := lc.kv.Load(key); ok {
+		element := v.(*list.Element)
 		lc.lm.Lock()
-		lc.lru.MoveToFront(e)
+		lc.lru.MoveToFront(element)
 		lc.lm.Unlock()
 
-		return e.Value.(*Item), true
+		return element.Value.(*Item), true
 	}
 
 	return &Item{}, false
 }
 
 func (lc *LRUCache) Set(key string, value interface{}) bool {
-	kvm := lc.kvLockManager.Get(key)
-	kvm.Lock()
-
-	if e, ok := lc.kv[key]; ok {
-		if timepoint := e.Value.(*Item).ExpiryTime(); !timepoint.IsZero() {
-			lc.removeFromExpiryBucket(timepoint.Unix(), key)
-		}
-
-		lc.lm.Lock()
-		lc.lru.Remove(e)
-		lc.lm.Unlock()
-	}
-
+	overwritten := lc.Delete(key)
 	now := time.Now()
 	var expiry time.Time
 	if ttl := lc.DefaultTTL(); ttl > 0 {
 		expiry = now.Add(ttl)
 	}
 
-	item := &Item{
+	lc.lm.Lock()
+	lc.kv.Store(key, lc.lru.PushFront(&Item{
 		key:          key,
 		value:        value,
 		lastUpdated:  now,
 		creationTime: now,
 		expiryTime:   expiry,
-	}
-
-	lc.lm.Lock()
-	lc.kv[key] = lc.lru.PushFront(item)
+	}))
 	lc.lm.Unlock()
-	kvm.Unlock()
 
 	if !expiry.IsZero() {
 		timepoint := expiry.Unix()
-		em := lc.expiryLockManager.Get(strconv.Itoa(int(timepoint)))
-		em.Lock()
-		lc.expiry[timepoint][key] = lc.kv[key]
-		em.Unlock()
+		bucket, _ := lc.expiry.LoadOrStore(timepoint, new(sync.Map))
+		bucket.(*sync.Map).Store(key, key)
 	}
 
-	return true
+	return overwritten
 }
 
 func (lc *LRUCache) Update(key string, value interface{}) bool {
-	kvm := lc.kvLockManager.Get(key)
-	kvm.Lock()
-	defer kvm.Unlock()
-
-	if e, ok := lc.kv[key]; ok {
-		item := e.Value.(*Item)
+	if v, ok := lc.kv.Load(key); ok {
+		element := v.(*list.Element)
+		item := element.Value.(*Item)
 		item.value = value
 		item.lastUpdated = time.Now()
 		lc.lm.Lock()
-		lc.lru.MoveToFront(e)
+		lc.lru.MoveToFront(element)
 		lc.lm.Unlock()
 
 		return true
@@ -152,16 +118,17 @@ func (lc *LRUCache) Update(key string, value interface{}) bool {
 }
 
 func (lc *LRUCache) Delete(key string) bool {
-	kvm := lc.kvLockManager.Get(key)
-	kvm.Lock()
-	defer kvm.Unlock()
+	if v, ok := lc.kv.LoadAndDelete(key); ok {
+		element := v.(*list.Element)
+		if timepoint := element.Value.(*Item).ExpiryTime(); !timepoint.IsZero() {
+			if bucket, ok := lc.expiry.Load(timepoint.Unix()); ok {
+				bucket.(*sync.Map).Delete(key)
+			}
+		}
 
-	if e, ok := lc.kv[key]; ok {
 		lc.lm.Lock()
-		lc.lru.Remove(e)
+		lc.lru.Remove(element)
 		lc.lm.Unlock()
-		delete(lc.kv, key)
-
 		return true
 	}
 
@@ -186,12 +153,8 @@ func (lc *LRUCache) Purge() {
 }
 
 func (lc *LRUCache) Peek(key string) (Entry, bool) {
-	kvm := lc.kvLockManager.Get(key)
-	kvm.RLock()
-	defer kvm.RUnlock()
-
-	if e, ok := lc.kv[key]; ok {
-		return e.Value.(*Item), true
+	if v, ok := lc.kv.Load(key); ok {
+		return v.(*list.Element).Value.(*Item), true
 	}
 
 	return &Item{}, false
@@ -251,16 +214,14 @@ func (lc *LRUCache) DefaultTTL() time.Duration {
 	return time.Duration(lc.ttl.Load())
 }
 
-func (lc *LRUCache) removeFromExpiryBucket(timepoint int64, key string) {
-	em := lc.expiryLockManager.Get(strconv.Itoa(int(timepoint)))
-	em.Lock()
-	defer em.Unlock()
-
-	delete(lc.expiry[timepoint], key)
-}
-
 func (lc *LRUCache) runGarbageCollection(ctx context.Context) {
 	ticker := time.NewTicker(time.Second)
+
+	callback := func(key, value interface{}) bool {
+		fmt.Println("HELLO")
+		lc.Delete(key.(string))
+		return true
+	}
 
 	go func() {
 		for {
@@ -271,15 +232,10 @@ func (lc *LRUCache) runGarbageCollection(ctx context.Context) {
 
 			case <-ticker.C:
 				timepoint := time.Now().Unix() + 1
-				em := lc.expiryLockManager.Get(strconv.Itoa(int(timepoint)))
-				em.Lock()
-				if l, ok := lc.expiry[timepoint]; ok {
-					for _, e := range l {
-						go lc.Delete(e.Value.(*Item).Key())
-					}
-					delete(lc.expiry, timepoint)
+				if bucket, ok := lc.expiry.LoadAndDelete(timepoint); ok {
+					bucket.(*sync.Map).Range(callback)
 				}
-				em.Unlock()
+
 			}
 		}
 	}()
