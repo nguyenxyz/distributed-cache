@@ -37,6 +37,12 @@ type Cache interface {
 
 	// Resize resizes the cache with the provided capacity, overflowing entries will be evicted
 	Resize(cap int)
+
+	// UpdateDefaultTTL updates the default time-to-live of cache entries to the given duration
+	UpdateDefaultTTL(ttl time.Duration)
+
+	// DefaultTTL returns the default time-to-live of cache entries
+	DefaultTTL() time.Duration
 }
 
 type Entry interface {
@@ -52,8 +58,11 @@ type Entry interface {
 	// CreationTime returns the timestamp when the entry was first created
 	CreationTime() time.Time
 
-	// TTL returns the time-to-live duration for the entry
+	// TTL returns the remaining time-to-live duration for the entry
 	TTL() time.Duration
+
+	// ExpiryTime returns the expiry time for the entry
+	ExpiryTime() time.Time
 
 	// Metadata returns the metadata associated with the entry
 	Metadata() map[string]interface{}

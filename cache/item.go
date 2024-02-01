@@ -9,7 +9,7 @@ type Item struct {
 	value        interface{}
 	lastUpdated  time.Time
 	creationTime time.Time
-	setTTL       time.Duration
+	expiryTime   time.Time
 	metadata     map[string]interface{}
 }
 
@@ -30,16 +30,20 @@ func (i *Item) CreationTime() time.Time {
 }
 
 func (i *Item) TTL() time.Duration {
-	if i.setTTL <= 0 {
-		return i.setTTL
+	if i.expiryTime.IsZero() {
+		return -1
 	}
 
-	remainingTime := i.setTTL - time.Since(i.creationTime)
-	if remainingTime < 0 {
-		remainingTime = 0
+	remaining := time.Until(i.expiryTime)
+	if remaining < 0 {
+		return 0
 	}
 
-	return remainingTime
+	return remaining
+}
+
+func (i *Item) ExpiryTime() time.Time {
+	return i.expiryTime
 }
 
 func (i *Item) Metadata() map[string]interface{} {
