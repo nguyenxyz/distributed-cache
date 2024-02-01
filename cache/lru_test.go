@@ -120,30 +120,6 @@ func TestLRUGarbageCollection(t *testing.T) {
 	}
 }
 
-func BenchmarkLRUHitMiss_Random(b *testing.B) {
-	lru := NewLRU(context.Background(), WithCapacity(8192))
-	trace := make([]string, b.N)
-	for i := 0; i < len(trace); i++ {
-		trace[i] = randKeyFromInt64(b, 32768)
-	}
-
-	b.ResetTimer()
-	var hit, miss int
-	for i := 0; i < b.N; i++ {
-		if i%2 == 0 {
-			lru.Set(trace[i], trace[i])
-		} else {
-			if _, ok := lru.Get(trace[i]); ok {
-				hit++
-			} else {
-				miss++
-			}
-		}
-	}
-
-	b.Logf("hit: %d, miss: %d, ratio %f", hit, miss, float64(hit)/float64(miss))
-}
-
 func TestLRUSameKeyConcurrentWrite(t *testing.T) {
 	lru := NewLRU(context.Background())
 	var wg sync.WaitGroup
@@ -171,6 +147,57 @@ func TestLRUSameKeyConcurrentWrite(t *testing.T) {
 	}
 }
 
+func TestLRUEviction(t *testing.T) {
+	cap := 10000
+	overflowf := 50
+	lru := NewLRU(context.Background(), WithCapacity(cap))
+	var wg sync.WaitGroup
+
+	for i := 0; i < cap*overflowf; i++ {
+		wg.Add(1)
+
+		go func(key int) {
+			defer wg.Done()
+
+			lru.Set(strconv.Itoa(key), key)
+		}(i)
+	}
+
+	wg.Wait()
+
+	if size := lru.Size(); size != cap {
+		t.Errorf("Expected size: %d, got %d", cap, size)
+	}
+
+	t.Logf("Size: %d", lru.Size())
+
+}
+
+func BenchmarkLRUHitMiss_Random(b *testing.B) {
+	lru := NewLRU(context.Background(), WithCapacity(8192))
+	trace := make([]string, b.N)
+	for i := 0; i < len(trace); i++ {
+		trace[i] = randKeyFromInt64(b, 32768)
+	}
+
+	b.ResetTimer()
+	var hit, miss int
+	for i := 0; i < b.N; i++ {
+		if i%2 == 0 {
+			lru.Set(trace[i], trace[i])
+		} else {
+			if _, ok := lru.Get(trace[i]); ok {
+				hit++
+			} else {
+				miss++
+			}
+		}
+	}
+
+	b.Logf("Cache size: %d", lru.Size())
+	b.Logf("hit: %d, miss: %d, ratio %f", hit, miss, float64(hit)/float64(miss))
+}
+
 func BenchmarkLRUHistMiss_Frequency(b *testing.B) {
 	lru := NewLRU(context.Background(), WithCapacity(8192))
 	trace := make([]string, b.N)
@@ -196,6 +223,7 @@ func BenchmarkLRUHistMiss_Frequency(b *testing.B) {
 		}
 	}
 
+	b.Logf("Cache size: %d", lru.Size())
 	b.Logf("hit: %d, miss: %d, ratio %f", hit, miss, float64(hit)/float64(miss))
 }
 

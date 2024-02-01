@@ -78,8 +78,7 @@ func (lc *LRUCache) Set(key string, value interface{}) bool {
 	}
 
 	// not safe when there's multiple concurrent writes to the same key
-	// value will be overwritten in kv but still remains in lru
-	// (benchmark is 4+)
+	// value will be overwritten in kv but still remains in lru (1)
 	lc.lm.Lock()
 	// This is for fixing the mentioned problem. need to check again
 	if _, ok := lc.kv.Load(key); !ok {
@@ -98,6 +97,33 @@ func (lc *LRUCache) Set(key string, value interface{}) bool {
 		timepoint := expiry.Unix()
 		bucket, _ := lc.expiry.LoadOrStore(timepoint, new(sync.Map))
 		bucket.(*sync.Map).Store(key, nil)
+	}
+
+	size, cap := lc.Size(), lc.Cap()
+	evict := cap > 0 && size > cap
+	// when two or more goroutines, after reading the size concurrently, all decide to
+	// carry out evictions, it could lead to duplicate evictions (2)
+	if evict {
+		lc.lm.Lock()
+		defer lc.lm.Unlock()
+		// have to check again, same problem above as (1)
+		for size, cap := lc.lru.Len(), lc.Cap(); cap > 0 && size > cap; size, cap = lc.lru.Len(), lc.Cap() {
+			element := lc.lru.Back()
+			if _, ok := lc.kv.LoadAndDelete(element.Value.(*Item).Key()); ok {
+				item := element.Value.(*Item)
+				k, v := item.Key(), item.Value()
+				if timepoint := item.ExpiryTime(); !timepoint.IsZero() {
+					if bucket, ok := lc.expiry.Load(timepoint.Unix()); ok {
+						bucket.(*sync.Map).Delete(k)
+					}
+				}
+				lc.lru.Remove(element)
+				if lc.onEvict != nil {
+					go lc.onEvict(k, v)
+				}
+			}
+
+		}
 	}
 
 	return overwritten
@@ -215,7 +241,7 @@ func (lc *LRUCache) DefaultTTL() time.Duration {
 func (lc *LRUCache) runGarbageCollection(ctx context.Context) {
 	ticker := time.NewTicker(time.Second)
 	callback := func(k, v interface{}) bool {
-		lc.Delete(k.(string))
+		go lc.Delete(k.(string))
 		return true
 	}
 
