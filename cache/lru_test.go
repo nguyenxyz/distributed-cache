@@ -62,7 +62,10 @@ func TestLRUSetGet(t *testing.T) {
 
 	lru := NewLRU(context.Background())
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.desc, func(t *testing.T) {
+			t.Parallel()
+
 			if tc.shouldExist {
 				lru.Set(tc.key, tc.value)
 			}
@@ -109,7 +112,10 @@ func TestLRUGarbageCollection(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.desc, func(t *testing.T) {
+			t.Parallel()
+
 			lru := NewLRU(context.Background(), WithDefaultTTL(tc.ttl))
 			lru.Set(tc.key, tc.key)
 			time.Sleep(tc.sleep)

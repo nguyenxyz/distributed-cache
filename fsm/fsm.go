@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/raft"
@@ -32,6 +33,8 @@ type Event struct {
 // FiniteStateMachine is a wrapper around Store and manages replication with Raft consensus
 type FiniteStateMachine struct {
 	cache.Cache
+
+	cap atomic.Int64
 
 	raft *raft.Raft
 }
@@ -185,7 +188,16 @@ func (fsm *FiniteStateMachine) Apply(l *raft.Log) interface{} {
 		return nil
 
 	case "resize":
-		fsm.Cache.Resize(event.Value.(int))
+		cap := event.Value.(int)
+		if cap <= 0 {
+			cap = -1
+		}
+		fsm.cap.Store(int64(cap))
+		// disable eviction on replicas, but still store the current cap to restore when become leader
+		if fsm.isRaftLeader() {
+			fsm.Cache.Resize(cap)
+		}
+
 		return nil
 
 	case "updatettl":
