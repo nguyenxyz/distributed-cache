@@ -57,7 +57,28 @@ func (fsm *FiniteStateMachine) Set(key string, value interface{}) (bool, error) 
 	}
 
 	res, err := fsm.replicateAndApplyOnQuorum(event)
-	if err != nil {
+	if err == nil {
+		telemetry.Log().Debugf("Succesfully replicate and apply event: %+v", event)
+		return res.(bool), nil
+	}
+
+	return false, err
+}
+
+func (fsm *FiniteStateMachine) Update(key string, value interface{}) (bool, error) {
+	if !fsm.isRaftLeader() {
+		telemetry.Log().Errorf("Calling Update on follower")
+		return false, ErrNotRaftLeader
+	}
+
+	event := Event{
+		Op:    "update",
+		Key:   key,
+		Value: value,
+	}
+
+	res, err := fsm.replicateAndApplyOnQuorum(event)
+	if err == nil {
 		telemetry.Log().Debugf("Succesfully replicate and apply event: %+v", event)
 		return res.(bool), nil
 	}
@@ -77,7 +98,7 @@ func (fsm *FiniteStateMachine) Delete(key string) (bool, error) {
 	}
 
 	res, err := fsm.replicateAndApplyOnQuorum(event)
-	if err != nil {
+	if err == nil {
 		telemetry.Log().Debugf("Succesfully replicate and apply event: %+v", event)
 		return res.(bool), nil
 	}
@@ -96,7 +117,45 @@ func (fsm *FiniteStateMachine) Purge() error {
 	}
 
 	_, err := fsm.replicateAndApplyOnQuorum(event)
-	if err != nil {
+	if err == nil {
+		telemetry.Log().Debugf("Succesfully replicate and apply event: %+v", event)
+	}
+
+	return err
+}
+
+func (fsm *FiniteStateMachine) Resize(cap int) error {
+	if !fsm.isRaftLeader() {
+		telemetry.Log().Errorf("Calling Resize on follower")
+		return ErrNotRaftLeader
+	}
+
+	event := Event{
+		Op:    "resize",
+		Value: cap,
+	}
+
+	_, err := fsm.replicateAndApplyOnQuorum(event)
+	if err == nil {
+		telemetry.Log().Debugf("Succesfully replicate and apply event: %+v", event)
+	}
+
+	return err
+}
+
+func (fsm *FiniteStateMachine) UpdateDefaultTTL(ttl time.Duration) error {
+	if !fsm.isRaftLeader() {
+		telemetry.Log().Errorf("Calling UpdateDefaultTTL on follower")
+		return ErrNotRaftLeader
+	}
+
+	event := Event{
+		Op:    "updatettl",
+		Value: ttl.Nanoseconds(),
+	}
+
+	_, err := fsm.replicateAndApplyOnQuorum(event)
+	if err == nil {
 		telemetry.Log().Debugf("Succesfully replicate and apply event: %+v", event)
 	}
 
@@ -115,11 +174,22 @@ func (fsm *FiniteStateMachine) Apply(l *raft.Log) interface{} {
 	case "set":
 		return fsm.Cache.Set(event.Key, event.Value)
 
+	case "update":
+		return fsm.Cache.Update(event.Key, event.Value)
+
 	case "delete":
 		return fsm.Cache.Delete(event.Key)
 
 	case "purge":
 		fsm.Cache.Purge()
+		return nil
+
+	case "resize":
+		fsm.Cache.Resize(event.Value.(int))
+		return nil
+
+	case "updatettl":
+		fsm.Cache.UpdateDefaultTTL(time.Duration(event.Value.(int64)))
 		return nil
 
 	default:

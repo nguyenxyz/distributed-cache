@@ -119,7 +119,7 @@ func (lc *LRUCache) Set(key string, value interface{}) bool {
 				}
 				lc.lru.Remove(element)
 				if lc.onEvict != nil {
-					go lc.onEvict(k, v)
+					lc.onEvict(k, v)
 				}
 			}
 
@@ -166,11 +166,7 @@ func (lc *LRUCache) Delete(key string) bool {
 
 func (lc *LRUCache) Purge() {
 	callback := func(k, v interface{}) bool {
-		key, value := k.(string), v.(*list.Element).Value.(*Item).Value()
-		lc.Delete(key)
-		if lc.onEvict != nil {
-			go lc.onEvict(key, value)
-		}
+		lc.Delete(k.(string))
 		return true
 	}
 
