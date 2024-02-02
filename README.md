@@ -1,7 +1,10 @@
-## Initial Architecture
+## Cluster Infra Design
 
 
-![cluster (9)](https://github.com/ph-ngn/nanobox/assets/93941060/6634b5a4-4f7a-4f45-87a5-4513cce8ad63)
+![cluster](https://github.com/ph-ngn/nanobox/assets/93941060/e05533af-a200-43fd-b775-79923fcabe3a)
+
+
+
 
 
 ## Tech roadmap:
