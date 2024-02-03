@@ -6,7 +6,7 @@ var _ Entry = (*Item)(nil)
 
 type Item struct {
 	key          string
-	value        interface{}
+	value        []byte
 	lastUpdated  time.Time
 	creationTime time.Time
 	expiryTime   time.Time
@@ -17,7 +17,7 @@ func (i *Item) Key() string {
 	return i.key
 }
 
-func (i *Item) Value() interface{} {
+func (i *Item) Value() []byte {
 	return i.value
 }
 

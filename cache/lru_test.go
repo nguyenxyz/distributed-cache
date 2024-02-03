@@ -3,6 +3,7 @@ package cache
 import (
 	"context"
 	crand "crypto/rand"
+	"encoding/json"
 	"math"
 	"math/big"
 	"reflect"
@@ -65,17 +66,21 @@ func TestLRUSetGet(t *testing.T) {
 		tc := tc
 		t.Run(tc.desc, func(t *testing.T) {
 			t.Parallel()
+			var b []byte
 
 			if tc.shouldExist {
-				lru.Set(tc.key, tc.value)
+				b, _ = json.Marshal(tc.value)
+				lru.Set(tc.key, b)
 			}
 
 			entry, ok := lru.Get(tc.key)
 			if tc.shouldExist != ok {
 				t.Errorf("Expected key existence: %t, got %t", tc.shouldExist, ok)
 			}
-			if !reflect.DeepEqual(entry.Value(), tc.value) {
-				t.Errorf("Expected value: %v, got %v", tc.value, entry.Value())
+			if !reflect.DeepEqual(entry.Value(), b) {
+				if entry.Value() != nil || b != nil {
+					t.Errorf("Expected value: %v, got %v", b, entry.Value())
+				}
 			}
 
 		})
@@ -117,7 +122,8 @@ func TestLRUGarbageCollection(t *testing.T) {
 			t.Parallel()
 
 			lru := NewLRU(context.Background(), WithDefaultTTL(tc.ttl))
-			lru.Set(tc.key, tc.key)
+			b, _ := json.Marshal(tc.key)
+			lru.Set(tc.key, b)
 			time.Sleep(tc.sleep)
 			if _, ok := lru.Get(tc.key); ok != tc.shouldExist {
 				t.Errorf("Expected key existence: %t, got %t", tc.shouldExist, ok)
@@ -138,7 +144,7 @@ func TestLRUSameKeyConcurrentWrite(t *testing.T) {
 			defer wg.Done()
 
 			k := strconv.Itoa(key % numKeys)
-			lru.Set(k, k)
+			lru.Set(k, []byte(k))
 		}(i)
 	}
 
@@ -165,7 +171,8 @@ func TestLRUEviction(t *testing.T) {
 		go func(key int) {
 			defer wg.Done()
 
-			lru.Set(strconv.Itoa(key), key)
+			k := strconv.Itoa(key)
+			lru.Set(k, []byte(k))
 		}(i)
 	}
 
@@ -190,7 +197,7 @@ func BenchmarkLRUHitMiss_Random(b *testing.B) {
 	var hit, miss int
 	for i := 0; i < b.N; i++ {
 		if i%2 == 0 {
-			lru.Set(trace[i], trace[i])
+			lru.Set(trace[i], []byte(trace[i]))
 		} else {
 			if _, ok := lru.Get(trace[i]); ok {
 				hit++
@@ -217,7 +224,7 @@ func BenchmarkLRUHistMiss_Frequency(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		lru.Set(trace[i], trace[i])
+		lru.Set(trace[i], []byte(trace[i]))
 	}
 
 	var hit, miss int

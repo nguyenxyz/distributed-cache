@@ -69,7 +69,7 @@ func (lc *LRUCache) Get(key string) (Entry, bool) {
 	return &Item{}, false
 }
 
-func (lc *LRUCache) Set(key string, value interface{}) bool {
+func (lc *LRUCache) Set(key string, value []byte) bool {
 	overwritten := lc.Delete(key)
 	now := time.Now()
 	var expiry time.Time
@@ -129,7 +129,7 @@ func (lc *LRUCache) Set(key string, value interface{}) bool {
 	return overwritten
 }
 
-func (lc *LRUCache) Update(key string, value interface{}) bool {
+func (lc *LRUCache) Update(key string, value []byte) bool {
 	if v, ok := lc.kv.Load(key); ok {
 		element := v.(*list.Element)
 		item := element.Value.(*Item)

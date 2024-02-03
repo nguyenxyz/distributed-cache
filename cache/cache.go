@@ -9,10 +9,10 @@ type Cache interface {
 	Get(key string) (Entry, bool)
 
 	// Set sets the value for the given key, overwrite if key exists, returns if key is overwritten
-	Set(key string, value interface{}) bool
+	Set(key string, value []byte) bool
 
 	// Update updates the value for the given key without resetting ttl, returns if key exists
-	Update(key string, value interface{}) bool
+	Update(key string, value []byte) bool
 
 	// Delete removes the given key from the cache, returns if key was contained
 	Delete(key string) bool
@@ -50,7 +50,7 @@ type Entry interface {
 	Key() string
 
 	// Value returns the value associated with the entry
-	Value() interface{}
+	Value() []byte
 
 	// LastUpdated returns the timestamp when the entry was last updated
 	LastUpdated() time.Time

@@ -47,7 +47,7 @@ func (fsm *FiniteStateMachine) Get(key string) (cache.Entry, bool) {
 	return fsm.Cache.Get(key)
 }
 
-func (fsm *FiniteStateMachine) Set(key string, value interface{}) (bool, error) {
+func (fsm *FiniteStateMachine) Set(key string, value []byte) (bool, error) {
 	if !fsm.isRaftLeader() {
 		telemetry.Log().Errorf("Calling Set on follower")
 		return false, ErrNotRaftLeader
@@ -68,7 +68,7 @@ func (fsm *FiniteStateMachine) Set(key string, value interface{}) (bool, error) 
 	return false, err
 }
 
-func (fsm *FiniteStateMachine) Update(key string, value interface{}) (bool, error) {
+func (fsm *FiniteStateMachine) Update(key string, value []byte) (bool, error) {
 	if !fsm.isRaftLeader() {
 		telemetry.Log().Errorf("Calling Update on follower")
 		return false, ErrNotRaftLeader
@@ -175,10 +175,10 @@ func (fsm *FiniteStateMachine) Apply(l *raft.Log) interface{} {
 
 	switch event.Op {
 	case "set":
-		return fsm.Cache.Set(event.Key, event.Value)
+		return fsm.Cache.Set(event.Key, event.Value.([]byte))
 
 	case "update":
-		return fsm.Cache.Update(event.Key, event.Value)
+		return fsm.Cache.Update(event.Key, event.Value.([]byte))
 
 	case "delete":
 		return fsm.Cache.Delete(event.Key)

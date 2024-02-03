@@ -1,0 +1,123 @@
+syntax = "proto3";
+package nbox;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/duration.proto";
+
+option go_package = "github.com/ph-ngn/nanobox/nbox";
+
+
+service Nanobox {
+    // DiscoverMaster returns the info of the current master
+    rpc DiscoverMaster(MasterInfoRequest) returns (MasterInfoResponse) {}
+
+    rpc Get(GetOrPeakRequest) returns (GetOrPeakResponse) {}
+
+    rpc Peek(GetOrPeakRequest) returns (GetOrPeakResponse) {}
+
+    rpc Set(SetOrUpdateRequest) returns (SetOrUpdateResponse) {}
+
+    rpc Update(SetOrUpdateRequest) returns (SetOrUpdateRequest) {}
+
+    rpc Delete(DeleteOrPurgeRequest) returns (DeleteOrPurgeResponse) {}
+
+    rpc Purge(DeleteOrPurgeRequest) returns (DeleteOrPurgeResponse) {}
+
+    rpc Keys(KeysRequest) returns (KeysResponse) {}
+
+    rpc Entries(EntriesRequest) returns (EntriesResponse) {}
+
+    rpc Size(SizeOrCapRequest) returns (SizeOrCapResponse) {}
+
+    rpc Cap(SizeOrCapRequest) returns (SizeOrCapResponse) {}
+
+    rpc DefaultTTL(DefaultTTLRequest) returns (DefaultTTLResponse) {}
+
+    rpc Resize(ResizeRequest) returns (ResizeResponse) {}
+
+    rpc UpdateDefaultTTL(UpdateDefaultTTLResponse) returns (UpdateDefaultTTLResponse) {}
+
+    
+}
+
+message Entry {
+    string key = 1;
+    bytes value = 2;
+    google.protobuf.Timestamp lastUpdated = 3;
+    google.protobuf.Timestamp creationTime = 4;
+    google.protobuf.Timestamp expiryTime = 5;
+    google.protobuf.Duration ttl = 6;
+    map<string, google.protobuf.Value> metadata = 7;
+}
+
+enum Error {
+    OK = 0;
+    NOTMASTER = 1;
+}
+
+message MasterInfoRequest {}
+message MasterInfoResponse {
+    string FQDN = 1;
+    uint32 ID = 2;
+}
+
+
+message GetOrPeakRequest {
+    string key = 1;
+}
+message GetOrPeakResponse {
+    optional Entry entry = 1;
+    bool flag = 2;
+}
+
+message SetOrUpdateRequest {
+    string key = 1;
+    bytes value = 2;
+}
+message SetOrUpdateResponse {
+    bool flag = 1;
+    Error error = 2;
+}
+
+message DeleteOrPurgeRequest {
+    optional string key = 1;
+}
+message DeleteOrPurgeResponse {
+    optional bool flag = 1;
+    Error error = 2;
+}
+
+message KeysRequest {}
+message KeysResponse {
+    repeated string keys = 1;
+}
+
+message EntriesRequest {}
+message EntriesResponse {
+    repeated Entry entries = 1;
+}
+
+message SizeOrCapRequest {}
+message SizeOrCapResponse {
+    int64 size = 1;
+}
+
+message DefaultTTLRequest {}
+message DefaultTTLResponse {
+    google.protobuf.Duration ttl = 1;
+}
+
+message ResizeRequest {
+    int64 size = 1;
+}
+message ResizeResponse {
+    Error error = 1;
+}
+
+message UpdateDefaultTTLRequest {
+    google.protobuf.Duration ttl = 1;
+}
+message UpdateDefaultTTLResponse {
+    Error error = 1;
+}
