@@ -18,7 +18,7 @@ service Nanobox {
 
     rpc Set(SetOrUpdateRequest) returns (SetOrUpdateResponse) {}
 
-    rpc Update(SetOrUpdateRequest) returns (SetOrUpdateRequest) {}
+    rpc Update(SetOrUpdateRequest) returns (SetOrUpdateResponse) {}
 
     rpc Delete(DeleteOrPurgeRequest) returns (DeleteOrPurgeResponse) {}
 
@@ -51,9 +51,10 @@ message Entry {
     map<string, google.protobuf.Value> metadata = 7;
 }
 
-enum Error {
+enum ErrorCode {
     OK = 0;
     NOTMASTER = 1;
+    INTERNAL = 2;
 }
 
 message MasterInfoRequest {}
@@ -77,7 +78,7 @@ message SetOrUpdateRequest {
 }
 message SetOrUpdateResponse {
     bool flag = 1;
-    Error error = 2;
+    ErrorCode errorCode = 2;
 }
 
 message DeleteOrPurgeRequest {
@@ -85,7 +86,7 @@ message DeleteOrPurgeRequest {
 }
 message DeleteOrPurgeResponse {
     optional bool flag = 1;
-    Error error = 2;
+    ErrorCode errorCode = 2;
 }
 
 message KeysRequest {}
@@ -112,12 +113,12 @@ message ResizeRequest {
     int64 size = 1;
 }
 message ResizeResponse {
-    Error error = 1;
+    ErrorCode errorCode = 1;
 }
 
 message UpdateDefaultTTLRequest {
     google.protobuf.Duration ttl = 1;
 }
 message UpdateDefaultTTLResponse {
-    Error error = 1;
+    ErrorCode errorCode = 1;
 }

@@ -27,7 +27,7 @@ type NanoboxClient interface {
 	Get(ctx context.Context, in *GetOrPeakRequest, opts ...grpc.CallOption) (*GetOrPeakResponse, error)
 	Peek(ctx context.Context, in *GetOrPeakRequest, opts ...grpc.CallOption) (*GetOrPeakResponse, error)
 	Set(ctx context.Context, in *SetOrUpdateRequest, opts ...grpc.CallOption) (*SetOrUpdateResponse, error)
-	Update(ctx context.Context, in *SetOrUpdateRequest, opts ...grpc.CallOption) (*SetOrUpdateRequest, error)
+	Update(ctx context.Context, in *SetOrUpdateRequest, opts ...grpc.CallOption) (*SetOrUpdateResponse, error)
 	Delete(ctx context.Context, in *DeleteOrPurgeRequest, opts ...grpc.CallOption) (*DeleteOrPurgeResponse, error)
 	Purge(ctx context.Context, in *DeleteOrPurgeRequest, opts ...grpc.CallOption) (*DeleteOrPurgeResponse, error)
 	Keys(ctx context.Context, in *KeysRequest, opts ...grpc.CallOption) (*KeysResponse, error)
@@ -83,8 +83,8 @@ func (c *nanoboxClient) Set(ctx context.Context, in *SetOrUpdateRequest, opts ..
 	return out, nil
 }
 
-func (c *nanoboxClient) Update(ctx context.Context, in *SetOrUpdateRequest, opts ...grpc.CallOption) (*SetOrUpdateRequest, error) {
-	out := new(SetOrUpdateRequest)
+func (c *nanoboxClient) Update(ctx context.Context, in *SetOrUpdateRequest, opts ...grpc.CallOption) (*SetOrUpdateResponse, error) {
+	out := new(SetOrUpdateResponse)
 	err := c.cc.Invoke(ctx, "/nbox.Nanobox/Update", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -182,7 +182,7 @@ type NanoboxServer interface {
 	Get(context.Context, *GetOrPeakRequest) (*GetOrPeakResponse, error)
 	Peek(context.Context, *GetOrPeakRequest) (*GetOrPeakResponse, error)
 	Set(context.Context, *SetOrUpdateRequest) (*SetOrUpdateResponse, error)
-	Update(context.Context, *SetOrUpdateRequest) (*SetOrUpdateRequest, error)
+	Update(context.Context, *SetOrUpdateRequest) (*SetOrUpdateResponse, error)
 	Delete(context.Context, *DeleteOrPurgeRequest) (*DeleteOrPurgeResponse, error)
 	Purge(context.Context, *DeleteOrPurgeRequest) (*DeleteOrPurgeResponse, error)
 	Keys(context.Context, *KeysRequest) (*KeysResponse, error)
@@ -211,7 +211,7 @@ func (UnimplementedNanoboxServer) Peek(context.Context, *GetOrPeakRequest) (*Get
 func (UnimplementedNanoboxServer) Set(context.Context, *SetOrUpdateRequest) (*SetOrUpdateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Set not implemented")
 }
-func (UnimplementedNanoboxServer) Update(context.Context, *SetOrUpdateRequest) (*SetOrUpdateRequest, error) {
+func (UnimplementedNanoboxServer) Update(context.Context, *SetOrUpdateRequest) (*SetOrUpdateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Update not implemented")
 }
 func (UnimplementedNanoboxServer) Delete(context.Context, *DeleteOrPurgeRequest) (*DeleteOrPurgeResponse, error) {
