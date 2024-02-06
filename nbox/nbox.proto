@@ -10,7 +10,7 @@ option go_package = "github.com/ph-ngn/nanobox/nbox";
 
 service Nanobox {
     // DiscoverMaster returns the info of the current master
-    rpc DiscoverMaster(MasterInfoRequest) returns (MasterInfoResponse) {}
+    rpc DiscoverMaster(DiscoverMasterRequest) returns (DiscoverMasterResponse) {}
 
     rpc Get(GetOrPeakRequest) returns (GetOrPeakResponse) {}
 
@@ -36,7 +36,7 @@ service Nanobox {
 
     rpc Resize(ResizeRequest) returns (ResizeResponse) {}
 
-    rpc UpdateDefaultTTL(UpdateDefaultTTLResponse) returns (UpdateDefaultTTLResponse) {}
+    rpc UpdateDefaultTTL(UpdateDefaultTTLRequest) returns (UpdateDefaultTTLResponse) {}
 
     
 }
@@ -57,10 +57,10 @@ enum ErrorCode {
     INTERNAL = 2;
 }
 
-message MasterInfoRequest {}
-message MasterInfoResponse {
+message DiscoverMasterRequest {}
+message DiscoverMasterResponse {
     string FQDN = 1;
-    uint32 ID = 2;
+    string ID = 2;
 }
 
 
@@ -82,10 +82,10 @@ message SetOrUpdateResponse {
 }
 
 message DeleteOrPurgeRequest {
-    optional string key = 1;
+    string key = 1;
 }
 message DeleteOrPurgeResponse {
-    optional bool flag = 1;
+    bool flag = 1;
     ErrorCode errorCode = 2;
 }
 

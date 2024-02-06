@@ -39,6 +39,10 @@ type FiniteStateMachine struct {
 	raft *raft.Raft
 }
 
+func (fsm *FiniteStateMachine) DiscoverLeader() (raft.ServerAddress, raft.ServerID) {
+	return fsm.raft.LeaderWithID()
+}
+
 func (fsm *FiniteStateMachine) Get(key string) (cache.Entry, bool) {
 	if !fsm.isRaftLeader() {
 		return fsm.Cache.Peek(key)

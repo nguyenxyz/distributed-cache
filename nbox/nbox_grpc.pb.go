@@ -23,7 +23,7 @@ const _ = grpc.SupportPackageIsVersion7
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type NanoboxClient interface {
 	// DiscoverMaster returns the info of the current master
-	DiscoverMaster(ctx context.Context, in *MasterInfoRequest, opts ...grpc.CallOption) (*MasterInfoResponse, error)
+	DiscoverMaster(ctx context.Context, in *DiscoverMasterRequest, opts ...grpc.CallOption) (*DiscoverMasterResponse, error)
 	Get(ctx context.Context, in *GetOrPeakRequest, opts ...grpc.CallOption) (*GetOrPeakResponse, error)
 	Peek(ctx context.Context, in *GetOrPeakRequest, opts ...grpc.CallOption) (*GetOrPeakResponse, error)
 	Set(ctx context.Context, in *SetOrUpdateRequest, opts ...grpc.CallOption) (*SetOrUpdateResponse, error)
@@ -36,7 +36,7 @@ type NanoboxClient interface {
 	Cap(ctx context.Context, in *SizeOrCapRequest, opts ...grpc.CallOption) (*SizeOrCapResponse, error)
 	DefaultTTL(ctx context.Context, in *DefaultTTLRequest, opts ...grpc.CallOption) (*DefaultTTLResponse, error)
 	Resize(ctx context.Context, in *ResizeRequest, opts ...grpc.CallOption) (*ResizeResponse, error)
-	UpdateDefaultTTL(ctx context.Context, in *UpdateDefaultTTLResponse, opts ...grpc.CallOption) (*UpdateDefaultTTLResponse, error)
+	UpdateDefaultTTL(ctx context.Context, in *UpdateDefaultTTLRequest, opts ...grpc.CallOption) (*UpdateDefaultTTLResponse, error)
 }
 
 type nanoboxClient struct {
@@ -47,8 +47,8 @@ func NewNanoboxClient(cc grpc.ClientConnInterface) NanoboxClient {
 	return &nanoboxClient{cc}
 }
 
-func (c *nanoboxClient) DiscoverMaster(ctx context.Context, in *MasterInfoRequest, opts ...grpc.CallOption) (*MasterInfoResponse, error) {
-	out := new(MasterInfoResponse)
+func (c *nanoboxClient) DiscoverMaster(ctx context.Context, in *DiscoverMasterRequest, opts ...grpc.CallOption) (*DiscoverMasterResponse, error) {
+	out := new(DiscoverMasterResponse)
 	err := c.cc.Invoke(ctx, "/nbox.Nanobox/DiscoverMaster", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -164,7 +164,7 @@ func (c *nanoboxClient) Resize(ctx context.Context, in *ResizeRequest, opts ...g
 	return out, nil
 }
 
-func (c *nanoboxClient) UpdateDefaultTTL(ctx context.Context, in *UpdateDefaultTTLResponse, opts ...grpc.CallOption) (*UpdateDefaultTTLResponse, error) {
+func (c *nanoboxClient) UpdateDefaultTTL(ctx context.Context, in *UpdateDefaultTTLRequest, opts ...grpc.CallOption) (*UpdateDefaultTTLResponse, error) {
 	out := new(UpdateDefaultTTLResponse)
 	err := c.cc.Invoke(ctx, "/nbox.Nanobox/UpdateDefaultTTL", in, out, opts...)
 	if err != nil {
@@ -178,7 +178,7 @@ func (c *nanoboxClient) UpdateDefaultTTL(ctx context.Context, in *UpdateDefaultT
 // for forward compatibility
 type NanoboxServer interface {
 	// DiscoverMaster returns the info of the current master
-	DiscoverMaster(context.Context, *MasterInfoRequest) (*MasterInfoResponse, error)
+	DiscoverMaster(context.Context, *DiscoverMasterRequest) (*DiscoverMasterResponse, error)
 	Get(context.Context, *GetOrPeakRequest) (*GetOrPeakResponse, error)
 	Peek(context.Context, *GetOrPeakRequest) (*GetOrPeakResponse, error)
 	Set(context.Context, *SetOrUpdateRequest) (*SetOrUpdateResponse, error)
@@ -191,7 +191,7 @@ type NanoboxServer interface {
 	Cap(context.Context, *SizeOrCapRequest) (*SizeOrCapResponse, error)
 	DefaultTTL(context.Context, *DefaultTTLRequest) (*DefaultTTLResponse, error)
 	Resize(context.Context, *ResizeRequest) (*ResizeResponse, error)
-	UpdateDefaultTTL(context.Context, *UpdateDefaultTTLResponse) (*UpdateDefaultTTLResponse, error)
+	UpdateDefaultTTL(context.Context, *UpdateDefaultTTLRequest) (*UpdateDefaultTTLResponse, error)
 	mustEmbedUnimplementedNanoboxServer()
 }
 
@@ -199,7 +199,7 @@ type NanoboxServer interface {
 type UnimplementedNanoboxServer struct {
 }
 
-func (UnimplementedNanoboxServer) DiscoverMaster(context.Context, *MasterInfoRequest) (*MasterInfoResponse, error) {
+func (UnimplementedNanoboxServer) DiscoverMaster(context.Context, *DiscoverMasterRequest) (*DiscoverMasterResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DiscoverMaster not implemented")
 }
 func (UnimplementedNanoboxServer) Get(context.Context, *GetOrPeakRequest) (*GetOrPeakResponse, error) {
@@ -238,7 +238,7 @@ func (UnimplementedNanoboxServer) DefaultTTL(context.Context, *DefaultTTLRequest
 func (UnimplementedNanoboxServer) Resize(context.Context, *ResizeRequest) (*ResizeResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Resize not implemented")
 }
-func (UnimplementedNanoboxServer) UpdateDefaultTTL(context.Context, *UpdateDefaultTTLResponse) (*UpdateDefaultTTLResponse, error) {
+func (UnimplementedNanoboxServer) UpdateDefaultTTL(context.Context, *UpdateDefaultTTLRequest) (*UpdateDefaultTTLResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateDefaultTTL not implemented")
 }
 func (UnimplementedNanoboxServer) mustEmbedUnimplementedNanoboxServer() {}
@@ -255,7 +255,7 @@ func RegisterNanoboxServer(s grpc.ServiceRegistrar, srv NanoboxServer) {
 }
 
 func _Nanobox_DiscoverMaster_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(MasterInfoRequest)
+	in := new(DiscoverMasterRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -267,7 +267,7 @@ func _Nanobox_DiscoverMaster_Handler(srv interface{}, ctx context.Context, dec f
 		FullMethod: "/nbox.Nanobox/DiscoverMaster",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(NanoboxServer).DiscoverMaster(ctx, req.(*MasterInfoRequest))
+		return srv.(NanoboxServer).DiscoverMaster(ctx, req.(*DiscoverMasterRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -489,7 +489,7 @@ func _Nanobox_Resize_Handler(srv interface{}, ctx context.Context, dec func(inte
 }
 
 func _Nanobox_UpdateDefaultTTL_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(UpdateDefaultTTLResponse)
+	in := new(UpdateDefaultTTLRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -501,7 +501,7 @@ func _Nanobox_UpdateDefaultTTL_Handler(srv interface{}, ctx context.Context, dec
 		FullMethod: "/nbox.Nanobox/UpdateDefaultTTL",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(NanoboxServer).UpdateDefaultTTL(ctx, req.(*UpdateDefaultTTLResponse))
+		return srv.(NanoboxServer).UpdateDefaultTTL(ctx, req.(*UpdateDefaultTTLRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
