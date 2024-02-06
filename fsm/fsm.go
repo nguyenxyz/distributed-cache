@@ -51,6 +51,14 @@ func (fsm *FiniteStateMachine) Get(key string) (cache.Entry, bool) {
 	return fsm.Cache.Get(key)
 }
 
+func (fsm *FiniteStateMachine) Cap() int {
+	if !fsm.isRaftLeader() {
+		return int(fsm.cap.Load())
+	}
+
+	return fsm.Cache.Cap()
+}
+
 func (fsm *FiniteStateMachine) Set(key string, value []byte) (bool, error) {
 	if !fsm.isRaftLeader() {
 		telemetry.Log().Errorf("Calling Set on follower")
