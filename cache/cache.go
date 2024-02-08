@@ -8,8 +8,8 @@ type Cache interface {
 	// Get returns the entry for the given key if found
 	Get(key string) (Entry, bool)
 
-	// Set sets the value for the given key, overwrite if key exists, returns if key is overwritten
-	Set(key string, value []byte) bool
+	// Set sets the value for the given key with the given ttl, overwrite if key exists, returns if key is overwritten
+	Set(key string, value []byte, ttl time.Duration) bool
 
 	// Update updates the value for the given key without resetting ttl, returns if key exists
 	Update(key string, value []byte) bool
@@ -37,12 +37,6 @@ type Cache interface {
 
 	// Resize resizes the cache with the provided capacity, overflowing entries will be evicted
 	Resize(cap int64)
-
-	// UpdateDefaultTTL updates the default time-to-live of cache entries to the given duration
-	UpdateDefaultTTL(ttl time.Duration)
-
-	// DefaultTTL returns the default time-to-live of cache entries
-	DefaultTTL() time.Duration
 
 	// Recover recovers the cache from the given slice of entries, discards all previous entries
 	Recover([]Entry)

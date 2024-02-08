@@ -34,9 +34,7 @@ type NanoboxClient interface {
 	Entries(ctx context.Context, in *EntriesRequest, opts ...grpc.CallOption) (*EntriesResponse, error)
 	Size(ctx context.Context, in *SizeOrCapRequest, opts ...grpc.CallOption) (*SizeOrCapResponse, error)
 	Cap(ctx context.Context, in *SizeOrCapRequest, opts ...grpc.CallOption) (*SizeOrCapResponse, error)
-	DefaultTTL(ctx context.Context, in *DefaultTTLRequest, opts ...grpc.CallOption) (*DefaultTTLResponse, error)
 	Resize(ctx context.Context, in *ResizeRequest, opts ...grpc.CallOption) (*ResizeResponse, error)
-	UpdateDefaultTTL(ctx context.Context, in *UpdateDefaultTTLRequest, opts ...grpc.CallOption) (*UpdateDefaultTTLResponse, error)
 }
 
 type nanoboxClient struct {
@@ -146,27 +144,9 @@ func (c *nanoboxClient) Cap(ctx context.Context, in *SizeOrCapRequest, opts ...g
 	return out, nil
 }
 
-func (c *nanoboxClient) DefaultTTL(ctx context.Context, in *DefaultTTLRequest, opts ...grpc.CallOption) (*DefaultTTLResponse, error) {
-	out := new(DefaultTTLResponse)
-	err := c.cc.Invoke(ctx, "/nbox.Nanobox/DefaultTTL", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *nanoboxClient) Resize(ctx context.Context, in *ResizeRequest, opts ...grpc.CallOption) (*ResizeResponse, error) {
 	out := new(ResizeResponse)
 	err := c.cc.Invoke(ctx, "/nbox.Nanobox/Resize", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *nanoboxClient) UpdateDefaultTTL(ctx context.Context, in *UpdateDefaultTTLRequest, opts ...grpc.CallOption) (*UpdateDefaultTTLResponse, error) {
-	out := new(UpdateDefaultTTLResponse)
-	err := c.cc.Invoke(ctx, "/nbox.Nanobox/UpdateDefaultTTL", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -189,9 +169,7 @@ type NanoboxServer interface {
 	Entries(context.Context, *EntriesRequest) (*EntriesResponse, error)
 	Size(context.Context, *SizeOrCapRequest) (*SizeOrCapResponse, error)
 	Cap(context.Context, *SizeOrCapRequest) (*SizeOrCapResponse, error)
-	DefaultTTL(context.Context, *DefaultTTLRequest) (*DefaultTTLResponse, error)
 	Resize(context.Context, *ResizeRequest) (*ResizeResponse, error)
-	UpdateDefaultTTL(context.Context, *UpdateDefaultTTLRequest) (*UpdateDefaultTTLResponse, error)
 	mustEmbedUnimplementedNanoboxServer()
 }
 
@@ -232,14 +210,8 @@ func (UnimplementedNanoboxServer) Size(context.Context, *SizeOrCapRequest) (*Siz
 func (UnimplementedNanoboxServer) Cap(context.Context, *SizeOrCapRequest) (*SizeOrCapResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Cap not implemented")
 }
-func (UnimplementedNanoboxServer) DefaultTTL(context.Context, *DefaultTTLRequest) (*DefaultTTLResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method DefaultTTL not implemented")
-}
 func (UnimplementedNanoboxServer) Resize(context.Context, *ResizeRequest) (*ResizeResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Resize not implemented")
-}
-func (UnimplementedNanoboxServer) UpdateDefaultTTL(context.Context, *UpdateDefaultTTLRequest) (*UpdateDefaultTTLResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method UpdateDefaultTTL not implemented")
 }
 func (UnimplementedNanoboxServer) mustEmbedUnimplementedNanoboxServer() {}
 
@@ -452,24 +424,6 @@ func _Nanobox_Cap_Handler(srv interface{}, ctx context.Context, dec func(interfa
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Nanobox_DefaultTTL_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(DefaultTTLRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(NanoboxServer).DefaultTTL(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/nbox.Nanobox/DefaultTTL",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(NanoboxServer).DefaultTTL(ctx, req.(*DefaultTTLRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _Nanobox_Resize_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ResizeRequest)
 	if err := dec(in); err != nil {
@@ -484,24 +438,6 @@ func _Nanobox_Resize_Handler(srv interface{}, ctx context.Context, dec func(inte
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(NanoboxServer).Resize(ctx, req.(*ResizeRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Nanobox_UpdateDefaultTTL_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(UpdateDefaultTTLRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(NanoboxServer).UpdateDefaultTTL(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/nbox.Nanobox/UpdateDefaultTTL",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(NanoboxServer).UpdateDefaultTTL(ctx, req.(*UpdateDefaultTTLRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -558,16 +494,8 @@ var Nanobox_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Nanobox_Cap_Handler,
 		},
 		{
-			MethodName: "DefaultTTL",
-			Handler:    _Nanobox_DefaultTTL_Handler,
-		},
-		{
 			MethodName: "Resize",
 			Handler:    _Nanobox_Resize_Handler,
-		},
-		{
-			MethodName: "UpdateDefaultTTL",
-			Handler:    _Nanobox_UpdateDefaultTTL_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

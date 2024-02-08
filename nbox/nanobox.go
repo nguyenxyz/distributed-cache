@@ -97,7 +97,7 @@ func (s *nanoboxServer) Set(ctx context.Context, request *SetOrUpdateRequest) (*
 
 	telemetry.Log().Infof("[SET] key: %s, from: %s", request.GetKey(), peer.Addr.String())
 
-	flag, err := s.fsm.Set(request.GetKey(), request.GetValue())
+	flag, err := s.fsm.Set(request.GetKey(), request.GetValue(), request.GetTtl().AsDuration())
 	response := &SetOrUpdateResponse{Flag: flag}
 	if err != nil {
 		switch {
@@ -238,13 +238,6 @@ func (s *nanoboxServer) Cap(ctx context.Context, request *SizeOrCapRequest) (*Si
 	return &SizeOrCapResponse{Size: int64(s.fsm.Cap())}, nil
 }
 
-func (s *nanoboxServer) DefaultTTL(ctx context.Context, request *DefaultTTLRequest) (*DefaultTTLResponse, error) {
-	peer, _ := peer.FromContext(ctx)
-	telemetry.Log().Infof("[DEFAULTTTL] from: %s", peer.Addr.String())
-
-	return &DefaultTTLResponse{Ttl: durationpb.New(s.fsm.DefaultTTL())}, nil
-}
-
 func (s *nanoboxServer) Resize(ctx context.Context, request *ResizeRequest) (*ResizeResponse, error) {
 	span := trace.SpanFromContext(ctx)
 	peer, _ := peer.FromContext(ctx)
@@ -265,33 +258,6 @@ func (s *nanoboxServer) Resize(ctx context.Context, request *ResizeRequest) (*Re
 
 	span.SetAttributes(
 		attribute.Int64("req.size", request.GetSize()),
-		attribute.String("req.from", peer.Addr.String()),
-		attribute.String("req.err", response.GetErrorCode().String()),
-	)
-
-	return response, err
-}
-
-func (s *nanoboxServer) UpdateDefaultTTL(ctx context.Context, request *UpdateDefaultTTLRequest) (*UpdateDefaultTTLResponse, error) {
-	span := trace.SpanFromContext(ctx)
-	peer, _ := peer.FromContext(ctx)
-
-	telemetry.Log().Infof("[UPDATEDEFAULTTTL] ttl: %v, from: %s", request.GetTtl().String(), peer.Addr.String())
-
-	err := s.fsm.UpdateDefaultTTL(request.GetTtl().AsDuration())
-	response := &UpdateDefaultTTLResponse{}
-	if err != nil {
-		switch {
-		case errors.Is(err, fsm.ErrNotRaftLeader):
-			response.ErrorCode = ErrorCode_NOTMASTER
-
-		default:
-			response.ErrorCode = ErrorCode_INTERNAL
-		}
-	}
-
-	span.SetAttributes(
-		attribute.String("req.ttl", request.GetTtl().String()),
 		attribute.String("req.from", peer.Addr.String()),
 		attribute.String("req.err", response.GetErrorCode().String()),
 	)

@@ -30,10 +30,11 @@ var (
 
 // Event represents an event in the event log that will get replicated to Raft followers
 type Event struct {
-	Op     string `json:"op,omitempty"`
-	Key    string `json:"key,omitempty"`
-	Bvalue []byte `json:"bvalue,omitempty"`
-	Ivalue int64  `json:"ivalue,omitempty"`
+	Op     string    `json:"op,omitempty"`
+	Key    string    `json:"key,omitempty"`
+	Bvalue []byte    `json:"bvalue,omitempty"`
+	Ivalue int64     `json:"ivalue,omitempty"`
+	Expiry time.Time `json:"expiry,omitempty"`
 }
 
 // FiniteStateMachine is a wrapper around Store and manages replication with Raft consensus
@@ -139,7 +140,7 @@ func (fsm *FiniteStateMachine) Cap() int64 {
 	return fsm.Cache.Cap()
 }
 
-func (fsm *FiniteStateMachine) Set(key string, value []byte) (bool, error) {
+func (fsm *FiniteStateMachine) Set(key string, value []byte, ttl time.Duration) (bool, error) {
 	if !fsm.isRaftLeader() {
 		telemetry.Log().Errorf("Calling Set on follower")
 		return false, ErrNotRaftLeader
@@ -149,6 +150,10 @@ func (fsm *FiniteStateMachine) Set(key string, value []byte) (bool, error) {
 		Op:     "set",
 		Key:    key,
 		Bvalue: value,
+	}
+
+	if ttl > 0 {
+		event.Expiry = time.Now().Add(ttl)
 	}
 
 	res, err := fsm.replicateAndApplyOnQuorum(event)
@@ -238,29 +243,9 @@ func (fsm *FiniteStateMachine) Resize(cap int64) error {
 	return err
 }
 
-func (fsm *FiniteStateMachine) UpdateDefaultTTL(ttl time.Duration) error {
-	if !fsm.isRaftLeader() {
-		telemetry.Log().Errorf("Calling UpdateDefaultTTL on follower")
-		return ErrNotRaftLeader
-	}
-
-	event := Event{
-		Op:     "updatettl",
-		Ivalue: ttl.Nanoseconds(),
-	}
-
-	_, err := fsm.replicateAndApplyOnQuorum(event)
-	if err == nil {
-		telemetry.Log().Debugf("Succesfully replicate and apply event: %+v", event)
-	}
-
-	return err
-}
-
 // Apply applies an event from the log to the finite state machine and is called once a log entry is committed by a quorum of the cluster
 func (fsm *FiniteStateMachine) Apply(l *raft.Log) interface{} {
 	var event Event
-
 	if err := json.Unmarshal(l.Data, &event); err != nil {
 		// need to exit and recover here so the fsm get a chance to reapply the event
 		telemetry.Log().Fatalf("Failed to unmarshal an event from the event log: %v", err)
@@ -268,7 +253,16 @@ func (fsm *FiniteStateMachine) Apply(l *raft.Log) interface{} {
 
 	switch event.Op {
 	case "set":
-		return fsm.Cache.Set(event.Key, event.Bvalue)
+		if !event.Expiry.IsZero() && event.Expiry.Before(time.Now()) {
+			return nil
+		}
+
+		ttl := time.Duration(-1)
+		if !event.Expiry.IsZero() {
+			ttl = time.Until(event.Expiry)
+		}
+
+		return fsm.Cache.Set(event.Key, event.Bvalue, ttl)
 
 	case "update":
 		return fsm.Cache.Update(event.Key, event.Bvalue)
@@ -291,10 +285,6 @@ func (fsm *FiniteStateMachine) Apply(l *raft.Log) interface{} {
 			fsm.Cache.Resize(cap)
 		}
 
-		return nil
-
-	case "updatettl":
-		fsm.Cache.UpdateDefaultTTL(time.Duration(event.Ivalue))
 		return nil
 
 	default:

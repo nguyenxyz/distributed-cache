@@ -34,9 +34,6 @@ type LRUCache struct {
 	// Doubly linked list to keep track of the least recently used cache entries
 	lru list.List
 
-	// Optional: Default time-to-live for cache entries
-	ttl atomic.Int64
-
 	// Unix time bucketed expiry map of cache entries
 	expiry sync.Map
 
@@ -47,7 +44,6 @@ type LRUCache struct {
 func NewLRU(ctx context.Context, options ...Option) *LRUCache {
 	lru := &LRUCache{}
 	lru.cap.Store(-1)
-	lru.ttl.Store(-1)
 	for _, opt := range options {
 		opt(lru)
 	}
@@ -66,14 +62,14 @@ func (lc *LRUCache) Get(key string) (Entry, bool) {
 		return element.Value.(Item), true
 	}
 
-	return &Item{}, false
+	return Item{}, false
 }
 
-func (lc *LRUCache) Set(key string, value []byte) bool {
+func (lc *LRUCache) Set(key string, value []byte, ttl time.Duration) bool {
 	overwritten := lc.Delete(key)
 	now := time.Now()
 	var expiry time.Time
-	if ttl := lc.DefaultTTL(); ttl > 0 {
+	if ttl > 0 {
 		expiry = now.Add(ttl)
 	}
 
@@ -133,16 +129,10 @@ func (lc *LRUCache) Update(key string, value []byte) bool {
 	if v, ok := lc.kv.Load(key); ok {
 		element := v.(*list.Element)
 		item := element.Value.(Item)
-		newVal := Item{
-			key:          item.Key(),
-			value:        value,
-			lastUpdated:  time.Now(),
-			creationTime: item.CreationTime(),
-			expiryTime:   item.CreationTime(),
-			metadata:     item.Metadata(),
-		}
+		item.value = value
+		item.lastUpdated = time.Now()
+		element.Value = item
 
-		element.Value = newVal
 		lc.lm.Lock()
 		lc.lru.MoveToFront(element)
 		lc.lm.Unlock()
@@ -231,17 +221,6 @@ func (lc *LRUCache) Resize(cap int64) {
 	lc.cap.Store(cap)
 }
 
-func (lc *LRUCache) UpdateDefaultTTL(ttl time.Duration) {
-	if ttl <= 0 {
-		ttl = -1
-	}
-	lc.ttl.Store(ttl.Nanoseconds())
-}
-
-func (lc *LRUCache) DefaultTTL() time.Duration {
-	return time.Duration(lc.ttl.Load())
-}
-
 func (lc *LRUCache) Recover(entries []Entry) {
 	lc.Purge()
 	for _, e := range entries {
@@ -286,14 +265,6 @@ func (lc *LRUCache) runGarbageCollection(ctx context.Context) {
 			}
 		}
 	}()
-}
-
-func WithDefaultTTL(ttl time.Duration) Option {
-	return func(lc *LRUCache) {
-		if ttl > 0 {
-			lc.ttl.Store(ttl.Nanoseconds())
-		}
-	}
 }
 
 func WithCapacity(cap int64) Option {

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/ph-ngn/nanobox/cache"
 	"github.com/ph-ngn/nanobox/fsm"
@@ -17,7 +16,7 @@ func main() {
 	defer cancel()
 
 	telemetry.Init(ctx)
-	lru := cache.NewLRU(ctx, cache.WithCapacity(1000), cache.WithDefaultTTL(10*time.Second))
+	lru := cache.NewLRU(ctx, cache.WithCapacity(1000))
 	fsm, err := fsm.NewFSM(fsm.Config{
 		Cache:            lru,
 		RaftBindAddr:     "localhost:4000",

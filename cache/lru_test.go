@@ -70,7 +70,7 @@ func TestLRUSetGet(t *testing.T) {
 
 			if tc.shouldExist {
 				b, _ = json.Marshal(tc.value)
-				lru.Set(tc.key, b)
+				lru.Set(tc.key, b, -1)
 			}
 
 			entry, ok := lru.Get(tc.key)
@@ -89,7 +89,7 @@ func TestLRUSetGet(t *testing.T) {
 
 func TestLRUGarbageCollection(t *testing.T) {
 	testCases := []struct {
-		desc, key   string
+		desc        string
 		ttl, sleep  time.Duration
 		shouldExist bool
 	}{
@@ -114,18 +114,23 @@ func TestLRUGarbageCollection(t *testing.T) {
 			sleep:       2 * time.Second,
 			shouldExist: true,
 		},
+		{
+			desc:        "Item with ttl of -1 should live forever",
+			ttl:         -1,
+			sleep:       3 * time.Second,
+			shouldExist: true,
+		},
 	}
 
+	lru := NewLRU(context.Background())
 	for _, tc := range testCases {
 		tc := tc
 		t.Run(tc.desc, func(t *testing.T) {
 			t.Parallel()
 
-			lru := NewLRU(context.Background(), WithDefaultTTL(tc.ttl))
-			b, _ := json.Marshal(tc.key)
-			lru.Set(tc.key, b)
+			lru.Set(tc.desc, []byte("🚀"), tc.ttl)
 			time.Sleep(tc.sleep)
-			if _, ok := lru.Get(tc.key); ok != tc.shouldExist {
+			if _, ok := lru.Get(tc.desc); ok != tc.shouldExist {
 				t.Errorf("Expected key existence: %t, got %t", tc.shouldExist, ok)
 			}
 		})
@@ -144,7 +149,7 @@ func TestLRUSameKeyConcurrentWrite(t *testing.T) {
 			defer wg.Done()
 
 			k := strconv.Itoa(key % numKeys)
-			lru.Set(k, []byte(k))
+			lru.Set(k, []byte(k), -1)
 		}(i)
 	}
 
@@ -172,7 +177,7 @@ func TestLRUEviction(t *testing.T) {
 			defer wg.Done()
 
 			k := strconv.Itoa(key)
-			lru.Set(k, []byte(k))
+			lru.Set(k, []byte(k), -1)
 		}(i)
 	}
 
@@ -197,7 +202,7 @@ func BenchmarkLRUHitMiss_Random(b *testing.B) {
 	var hit, miss int
 	for i := 0; i < b.N; i++ {
 		if i%2 == 0 {
-			lru.Set(trace[i], []byte(trace[i]))
+			lru.Set(trace[i], []byte(trace[i]), -1)
 		} else {
 			if _, ok := lru.Get(trace[i]); ok {
 				hit++
@@ -224,7 +229,7 @@ func BenchmarkLRUHistMiss_Frequency(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		lru.Set(trace[i], []byte(trace[i]))
+		lru.Set(trace[i], []byte(trace[i]), -1)
 	}
 
 	var hit, miss int

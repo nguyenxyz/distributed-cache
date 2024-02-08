@@ -32,13 +32,7 @@ service Nanobox {
 
     rpc Cap(SizeOrCapRequest) returns (SizeOrCapResponse) {}
 
-    rpc DefaultTTL(DefaultTTLRequest) returns (DefaultTTLResponse) {}
-
-    rpc Resize(ResizeRequest) returns (ResizeResponse) {}
-
-    rpc UpdateDefaultTTL(UpdateDefaultTTLRequest) returns (UpdateDefaultTTLResponse) {}
-
-    
+    rpc Resize(ResizeRequest) returns (ResizeResponse) {}    
 }
 
 message Entry {
@@ -75,6 +69,7 @@ message GetOrPeakResponse {
 message SetOrUpdateRequest {
     string key = 1;
     bytes value = 2;
+    google.protobuf.Duration ttl = 3;
 }
 message SetOrUpdateResponse {
     bool flag = 1;
@@ -104,21 +99,9 @@ message SizeOrCapResponse {
     int64 size = 1;
 }
 
-message DefaultTTLRequest {}
-message DefaultTTLResponse {
-    google.protobuf.Duration ttl = 1;
-}
-
 message ResizeRequest {
     int64 size = 1;
 }
 message ResizeResponse {
-    ErrorCode errorCode = 1;
-}
-
-message UpdateDefaultTTLRequest {
-    google.protobuf.Duration ttl = 1;
-}
-message UpdateDefaultTTLResponse {
     ErrorCode errorCode = 1;
 }
