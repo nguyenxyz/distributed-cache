@@ -13,23 +13,23 @@ type Item struct {
 	metadata     map[string]interface{}
 }
 
-func (i *Item) Key() string {
+func (i Item) Key() string {
 	return i.key
 }
 
-func (i *Item) Value() []byte {
+func (i Item) Value() []byte {
 	return i.value
 }
 
-func (i *Item) LastUpdated() time.Time {
+func (i Item) LastUpdated() time.Time {
 	return i.lastUpdated
 }
 
-func (i *Item) CreationTime() time.Time {
+func (i Item) CreationTime() time.Time {
 	return i.creationTime
 }
 
-func (i *Item) TTL() time.Duration {
+func (i Item) TTL() time.Duration {
 	if i.expiryTime.IsZero() {
 		return -1
 	}
@@ -42,10 +42,10 @@ func (i *Item) TTL() time.Duration {
 	return remaining
 }
 
-func (i *Item) ExpiryTime() time.Time {
+func (i Item) ExpiryTime() time.Time {
 	return i.expiryTime
 }
 
-func (i *Item) Metadata() map[string]interface{} {
+func (i Item) Metadata() map[string]interface{} {
 	return i.metadata
 }

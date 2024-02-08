@@ -26,7 +26,7 @@ type Cache interface {
 	// Keys returns a slice of the keys in the cache
 	Keys() []string
 
-	// Values returns a slice of the entries in the cache
+	// Values returns a read-only slice of the entries in the cache
 	Entries() []Entry
 
 	// Size returns the number of entries in the cache
@@ -43,6 +43,9 @@ type Cache interface {
 
 	// DefaultTTL returns the default time-to-live of cache entries
 	DefaultTTL() time.Duration
+
+	// Recover recovers the cache from the given slice of entries, discards all previous entries
+	Recover([]Entry)
 }
 
 type Entry interface {

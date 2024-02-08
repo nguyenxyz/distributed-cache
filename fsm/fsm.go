@@ -255,10 +255,16 @@ func (fsm *FiniteStateMachine) Join(nodeID, addr string) error {
 }
 
 func (fsm *FiniteStateMachine) Snapshot() (raft.FSMSnapshot, error) {
-	return nil, nil
+	return &Snapshot{memory: fsm.Entries()}, nil
 }
 
-func (fsm *FiniteStateMachine) Restore(snapshot io.ReadCloser) error {
+func (fsm *FiniteStateMachine) Restore(rc io.ReadCloser) error {
+	snapshot := make([]cache.Entry, 0)
+	if err := json.NewDecoder(rc).Decode(&snapshot); err != nil {
+		return err
+	}
+
+	fsm.Cache.Recover(snapshot)
 	return nil
 }
 

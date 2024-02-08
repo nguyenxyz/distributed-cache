@@ -63,7 +63,7 @@ func (lc *LRUCache) Get(key string) (Entry, bool) {
 		lc.lru.MoveToFront(element)
 		lc.lm.Unlock()
 
-		return element.Value.(*Item), true
+		return element.Value.(Item), true
 	}
 
 	return &Item{}, false
@@ -82,7 +82,7 @@ func (lc *LRUCache) Set(key string, value []byte) bool {
 	lc.lm.Lock()
 	// This is for fixing the mentioned problem. need to check again
 	if _, ok := lc.kv.Load(key); !ok {
-		lc.kv.Store(key, lc.lru.PushFront(&Item{
+		lc.kv.Store(key, lc.lru.PushFront(Item{
 			key:          key,
 			value:        value,
 			lastUpdated:  now,
@@ -109,8 +109,8 @@ func (lc *LRUCache) Set(key string, value []byte) bool {
 		// have to check again, same problem above as (1)
 		for size, cap := lc.lru.Len(), lc.Cap(); cap > 0 && size > cap; size, cap = lc.lru.Len(), lc.Cap() {
 			element := lc.lru.Back()
-			if _, ok := lc.kv.LoadAndDelete(element.Value.(*Item).Key()); ok {
-				item := element.Value.(*Item)
+			if _, ok := lc.kv.LoadAndDelete(element.Value.(Item).Key()); ok {
+				item := element.Value.(Item)
 				k, v := item.Key(), item.Value()
 				if timepoint := item.ExpiryTime(); !timepoint.IsZero() {
 					if bucket, ok := lc.expiry.Load(timepoint.Unix()); ok {
@@ -132,9 +132,17 @@ func (lc *LRUCache) Set(key string, value []byte) bool {
 func (lc *LRUCache) Update(key string, value []byte) bool {
 	if v, ok := lc.kv.Load(key); ok {
 		element := v.(*list.Element)
-		item := element.Value.(*Item)
-		item.value = value
-		item.lastUpdated = time.Now()
+		item := element.Value.(Item)
+		newVal := Item{
+			key:          item.Key(),
+			value:        value,
+			lastUpdated:  time.Now(),
+			creationTime: item.CreationTime(),
+			expiryTime:   item.CreationTime(),
+			metadata:     item.Metadata(),
+		}
+
+		element.Value = newVal
 		lc.lm.Lock()
 		lc.lru.MoveToFront(element)
 		lc.lm.Unlock()
@@ -148,7 +156,7 @@ func (lc *LRUCache) Update(key string, value []byte) bool {
 func (lc *LRUCache) Delete(key string) bool {
 	if v, ok := lc.kv.LoadAndDelete(key); ok {
 		element := v.(*list.Element)
-		if timepoint := element.Value.(*Item).ExpiryTime(); !timepoint.IsZero() {
+		if timepoint := element.Value.(Item).ExpiryTime(); !timepoint.IsZero() {
 			if bucket, ok := lc.expiry.Load(timepoint.Unix()); ok {
 				bucket.(*sync.Map).Delete(key)
 			}
@@ -175,7 +183,7 @@ func (lc *LRUCache) Purge() {
 
 func (lc *LRUCache) Peek(key string) (Entry, bool) {
 	if v, ok := lc.kv.Load(key); ok {
-		return v.(*list.Element).Value.(*Item), true
+		return v.(*list.Element).Value.(Item), true
 	}
 
 	return &Item{}, false
@@ -187,7 +195,7 @@ func (lc *LRUCache) Keys() []string {
 
 	keys := make([]string, 0, lc.lru.Len())
 	for e := lc.lru.Front(); e != nil; e = e.Next() {
-		keys = append(keys, e.Value.(*Item).Key())
+		keys = append(keys, e.Value.(Item).Key())
 	}
 
 	return keys
@@ -199,7 +207,7 @@ func (lc *LRUCache) Entries() []Entry {
 
 	entries := make([]Entry, 0, lc.lru.Len())
 	for e := lc.lru.Front(); e != nil; e = e.Next() {
-		entries = append(entries, e.Value.(*Item))
+		entries = append(entries, e.Value.(Item))
 	}
 
 	return entries
@@ -232,6 +240,27 @@ func (lc *LRUCache) UpdateDefaultTTL(ttl time.Duration) {
 
 func (lc *LRUCache) DefaultTTL() time.Duration {
 	return time.Duration(lc.ttl.Load())
+}
+
+func (lc *LRUCache) Recover(entries []Entry) {
+	lc.Purge()
+	for _, e := range entries {
+		if e.TTL() != 0 {
+			lc.kv.Store(e.Key(), lc.lru.PushBack(Item{
+				key:          e.Key(),
+				value:        e.Value(),
+				lastUpdated:  e.LastUpdated(),
+				creationTime: e.CreationTime(),
+				expiryTime:   e.ExpiryTime(),
+				metadata:     e.Metadata(),
+			}))
+		}
+
+		if et := e.ExpiryTime(); !et.IsZero() {
+			bucket, _ := lc.expiry.LoadOrStore(et.Unix(), new(sync.Map))
+			bucket.(*sync.Map).Store(e.Key(), nil)
+		}
+	}
 }
 
 func (lc *LRUCache) runGarbageCollection(ctx context.Context) {
