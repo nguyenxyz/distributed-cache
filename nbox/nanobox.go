@@ -251,7 +251,7 @@ func (s *nanoboxServer) Resize(ctx context.Context, request *ResizeRequest) (*Re
 
 	telemetry.Log().Infof("[RESIZE] size: %d, from: %s", request.GetSize(), peer.Addr.String())
 
-	err := s.fsm.Resize(int(request.GetSize()))
+	err := s.fsm.Resize(request.GetSize())
 	response := &ResizeResponse{}
 	if err != nil {
 		switch {

@@ -77,7 +77,7 @@ func newMeterProvider() (*metric.MeterProvider, error) {
 
 	meterProvider := metric.NewMeterProvider(
 		metric.WithReader(metric.NewPeriodicReader(metricExporter,
-			metric.WithInterval(3*time.Second))),
+			metric.WithInterval(60*time.Second))),
 	)
 	return meterProvider, nil
 }

@@ -4,10 +4,14 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/raft"
+	raftboltdb "github.com/hashicorp/raft-boltdb/v2"
 
 	"github.com/ph-ngn/nanobox/cache"
 	"github.com/ph-ngn/nanobox/telemetry"
@@ -16,6 +20,7 @@ import (
 const (
 	RaftTimeOut         = 15 * time.Second
 	ConfigChangeTimeOut = 0
+	RetainSnapshotCount = 2
 )
 
 var (
@@ -25,9 +30,10 @@ var (
 
 // Event represents an event in the event log that will get replicated to Raft followers
 type Event struct {
-	Op    string      `json:"op,omitempty"`
-	Key   string      `json:"key,omitempty"`
-	Value interface{} `json:"value,omitempty"`
+	Op     string `json:"op,omitempty"`
+	Key    string `json:"key,omitempty"`
+	Bvalue []byte `json:"bvalue,omitempty"`
+	Ivalue int64  `json:"ivalue,omitempty"`
 }
 
 // FiniteStateMachine is a wrapper around Store and manages replication with Raft consensus
@@ -37,6 +43,80 @@ type FiniteStateMachine struct {
 	cap atomic.Int64
 
 	raft *raft.Raft
+}
+
+type Config struct {
+	Cache cache.Cache
+
+	RaftBindAddr, RaftDir, FQDN, ID string
+
+	BootstrapCluster bool
+}
+
+func (c *Config) validate() error {
+	if c.Cache == nil {
+		return errors.New("a cache implementation must be provided")
+	}
+
+	if c.RaftBindAddr == "" || c.RaftDir == "" || c.FQDN == "" || c.ID == "" {
+		return errors.New("RaftAddr, RaftDir, RaftID must be provided")
+	}
+
+	return nil
+}
+
+func NewFSM(cfg Config) (fsm *FiniteStateMachine, err error) {
+	if err := cfg.validate(); err != nil {
+		return nil, err
+	}
+
+	raftCfg := raft.DefaultConfig()
+	raftCfg.LocalID = raft.ServerID(cfg.ID)
+
+	clusterAddr, err := net.ResolveTCPAddr("tcp", cfg.FQDN)
+	if err != nil {
+		return
+	}
+	transport, err := raft.NewTCPTransport(cfg.RaftBindAddr, clusterAddr, 4, 15*time.Second, os.Stderr)
+	if err != nil {
+		return
+	}
+
+	snapshots, err := raft.NewFileSnapshotStore(cfg.RaftDir, RetainSnapshotCount, os.Stderr)
+	if err != nil {
+		return
+	}
+
+	boltDB, err := raftboltdb.New(raftboltdb.Options{
+		Path: filepath.Join(cfg.RaftDir, "raft.db"),
+	})
+	if err != nil {
+		return
+	}
+
+	fsm = &FiniteStateMachine{
+		Cache: cfg.Cache,
+	}
+
+	node, err := raft.NewRaft(raftCfg, fsm, boltDB, boltDB, snapshots, transport)
+	if err != nil {
+		return
+	}
+
+	if cfg.BootstrapCluster {
+		clusterCfg := raft.Configuration{
+			Servers: []raft.Server{
+				{
+					ID:      raftCfg.LocalID,
+					Address: transport.LocalAddr(),
+				},
+			},
+		}
+		node.BootstrapCluster(clusterCfg)
+	}
+
+	fsm.raft = node
+	return
 }
 
 func (fsm *FiniteStateMachine) DiscoverLeader() (raft.ServerAddress, raft.ServerID) {
@@ -51,9 +131,9 @@ func (fsm *FiniteStateMachine) Get(key string) (cache.Entry, bool) {
 	return fsm.Cache.Get(key)
 }
 
-func (fsm *FiniteStateMachine) Cap() int {
+func (fsm *FiniteStateMachine) Cap() int64 {
 	if !fsm.isRaftLeader() {
-		return int(fsm.cap.Load())
+		return fsm.cap.Load()
 	}
 
 	return fsm.Cache.Cap()
@@ -66,9 +146,9 @@ func (fsm *FiniteStateMachine) Set(key string, value []byte) (bool, error) {
 	}
 
 	event := Event{
-		Op:    "set",
-		Key:   key,
-		Value: value,
+		Op:     "set",
+		Key:    key,
+		Bvalue: value,
 	}
 
 	res, err := fsm.replicateAndApplyOnQuorum(event)
@@ -87,9 +167,9 @@ func (fsm *FiniteStateMachine) Update(key string, value []byte) (bool, error) {
 	}
 
 	event := Event{
-		Op:    "update",
-		Key:   key,
-		Value: value,
+		Op:     "update",
+		Key:    key,
+		Bvalue: value,
 	}
 
 	res, err := fsm.replicateAndApplyOnQuorum(event)
@@ -139,15 +219,15 @@ func (fsm *FiniteStateMachine) Purge() error {
 	return err
 }
 
-func (fsm *FiniteStateMachine) Resize(cap int) error {
+func (fsm *FiniteStateMachine) Resize(cap int64) error {
 	if !fsm.isRaftLeader() {
 		telemetry.Log().Errorf("Calling Resize on follower")
 		return ErrNotRaftLeader
 	}
 
 	event := Event{
-		Op:    "resize",
-		Value: cap,
+		Op:     "resize",
+		Ivalue: cap,
 	}
 
 	_, err := fsm.replicateAndApplyOnQuorum(event)
@@ -165,8 +245,8 @@ func (fsm *FiniteStateMachine) UpdateDefaultTTL(ttl time.Duration) error {
 	}
 
 	event := Event{
-		Op:    "updatettl",
-		Value: ttl.Nanoseconds(),
+		Op:     "updatettl",
+		Ivalue: ttl.Nanoseconds(),
 	}
 
 	_, err := fsm.replicateAndApplyOnQuorum(event)
@@ -180,6 +260,7 @@ func (fsm *FiniteStateMachine) UpdateDefaultTTL(ttl time.Duration) error {
 // Apply applies an event from the log to the finite state machine and is called once a log entry is committed by a quorum of the cluster
 func (fsm *FiniteStateMachine) Apply(l *raft.Log) interface{} {
 	var event Event
+
 	if err := json.Unmarshal(l.Data, &event); err != nil {
 		// need to exit and recover here so the fsm get a chance to reapply the event
 		telemetry.Log().Fatalf("Failed to unmarshal an event from the event log: %v", err)
@@ -187,10 +268,10 @@ func (fsm *FiniteStateMachine) Apply(l *raft.Log) interface{} {
 
 	switch event.Op {
 	case "set":
-		return fsm.Cache.Set(event.Key, event.Value.([]byte))
+		return fsm.Cache.Set(event.Key, event.Bvalue)
 
 	case "update":
-		return fsm.Cache.Update(event.Key, event.Value.([]byte))
+		return fsm.Cache.Update(event.Key, event.Bvalue)
 
 	case "delete":
 		return fsm.Cache.Delete(event.Key)
@@ -200,11 +281,11 @@ func (fsm *FiniteStateMachine) Apply(l *raft.Log) interface{} {
 		return nil
 
 	case "resize":
-		cap := event.Value.(int)
+		cap := event.Ivalue
 		if cap <= 0 {
 			cap = -1
 		}
-		fsm.cap.Store(int64(cap))
+		fsm.cap.Store(cap)
 		// disable eviction on replicas, but still store the current cap to restore when become leader
 		if fsm.isRaftLeader() {
 			fsm.Cache.Resize(cap)
@@ -213,7 +294,7 @@ func (fsm *FiniteStateMachine) Apply(l *raft.Log) interface{} {
 		return nil
 
 	case "updatettl":
-		fsm.Cache.UpdateDefaultTTL(time.Duration(event.Value.(int64)))
+		fsm.Cache.UpdateDefaultTTL(time.Duration(event.Ivalue))
 		return nil
 
 	default:

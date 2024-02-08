@@ -30,13 +30,13 @@ type Cache interface {
 	Entries() []Entry
 
 	// Size returns the number of entries in the cache
-	Size() int
+	Size() int64
 
 	// Cap returns the current capacity of the cache
-	Cap() int
+	Cap() int64
 
 	// Resize resizes the cache with the provided capacity, overflowing entries will be evicted
-	Resize(cap int)
+	Resize(cap int64)
 
 	// UpdateDefaultTTL updates the default time-to-live of cache entries to the given duration
 	UpdateDefaultTTL(ttl time.Duration)

@@ -107,7 +107,7 @@ func (lc *LRUCache) Set(key string, value []byte) bool {
 		lc.lm.Lock()
 		defer lc.lm.Unlock()
 		// have to check again, same problem above as (1)
-		for size, cap := lc.lru.Len(), lc.Cap(); cap > 0 && size > cap; size, cap = lc.lru.Len(), lc.Cap() {
+		for size, cap := lc.lru.Len(), lc.Cap(); cap > 0 && int64(size) > cap; size, cap = lc.lru.Len(), lc.Cap() {
 			element := lc.lru.Back()
 			if _, ok := lc.kv.LoadAndDelete(element.Value.(Item).Key()); ok {
 				item := element.Value.(Item)
@@ -213,22 +213,22 @@ func (lc *LRUCache) Entries() []Entry {
 	return entries
 }
 
-func (lc *LRUCache) Size() int {
+func (lc *LRUCache) Size() int64 {
 	lc.lm.RLock()
 	defer lc.lm.RUnlock()
 
-	return lc.lru.Len()
+	return int64(lc.lru.Len())
 }
 
-func (lc *LRUCache) Cap() int {
-	return int(lc.cap.Load())
+func (lc *LRUCache) Cap() int64 {
+	return lc.cap.Load()
 }
 
-func (lc *LRUCache) Resize(cap int) {
+func (lc *LRUCache) Resize(cap int64) {
 	if cap <= 0 {
 		cap = -1
 	}
-	lc.cap.Store(int64(cap))
+	lc.cap.Store(cap)
 }
 
 func (lc *LRUCache) UpdateDefaultTTL(ttl time.Duration) {
@@ -296,10 +296,10 @@ func WithDefaultTTL(ttl time.Duration) Option {
 	}
 }
 
-func WithCapacity(cap int) Option {
+func WithCapacity(cap int64) Option {
 	return func(lc *LRUCache) {
 		if cap > 0 {
-			lc.cap.Store(int64(cap))
+			lc.cap.Store(cap)
 		}
 	}
 }

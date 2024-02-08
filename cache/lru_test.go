@@ -149,7 +149,7 @@ func TestLRUSameKeyConcurrentWrite(t *testing.T) {
 	}
 
 	wg.Wait()
-	if size := lru.Size(); size != numKeys {
+	if size := lru.Size(); size != int64(numKeys) {
 		t.Errorf("Expected size: %d, got %d", numKeys, size)
 	}
 
@@ -162,7 +162,7 @@ func TestLRUSameKeyConcurrentWrite(t *testing.T) {
 func TestLRUEviction(t *testing.T) {
 	cap := 10000
 	overflowf := 50
-	lru := NewLRU(context.Background(), WithCapacity(cap))
+	lru := NewLRU(context.Background(), WithCapacity(int64(cap)))
 	var wg sync.WaitGroup
 
 	for i := 0; i < cap*overflowf; i++ {
@@ -178,7 +178,7 @@ func TestLRUEviction(t *testing.T) {
 
 	wg.Wait()
 
-	if size := lru.Size(); size != cap {
+	if size := lru.Size(); size != int64(cap) {
 		t.Errorf("Expected size: %d, got %d", cap, size)
 	}
 
