@@ -12,7 +12,7 @@ var _ Cache = (*LRUCache)(nil)
 
 type (
 	// EvictionCallBack is used to register a callback when a cache entry is evicted
-	EvictionCallBack func(key string, value interface{})
+	EvictionCallBack func(key string, value []byte)
 
 	// Bucket is a container for expirable elements for O(1) removal
 	Bucket map[string]*list.Element

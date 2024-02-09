@@ -142,7 +142,7 @@ func (fsm *FiniteStateMachine) Cap() int64 {
 
 func (fsm *FiniteStateMachine) Set(key string, value []byte, ttl time.Duration) (bool, error) {
 	if !fsm.isRaftLeader() {
-		telemetry.Log().Errorf("Calling Set on follower")
+		telemetry.Log().Warnf("Calling Set on follower")
 		return false, ErrNotRaftLeader
 	}
 
@@ -292,7 +292,7 @@ func (fsm *FiniteStateMachine) Apply(l *raft.Log) interface{} {
 	}
 }
 
-func (fsm *FiniteStateMachine) Join(nodeID, addr string) error {
+func (fsm *FiniteStateMachine) Join(addr, nodeID string) error {
 	telemetry.Log().Infof("Received join request from node %s at %s", nodeID, addr)
 	if !fsm.isRaftLeader() {
 		telemetry.Log().Errorf("Calling Join on follower")

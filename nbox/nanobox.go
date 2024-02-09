@@ -269,7 +269,7 @@ func (s *nanoboxServer) Join(ctx context.Context, request *JoinRequest) (*JoinRe
 	span := trace.SpanFromContext(ctx)
 	peer, _ := peer.FromContext(ctx)
 
-	telemetry.Log().Infof("[JOIN] from %s", peer.Addr.String())
+	telemetry.Log().Infof("[JOIN] from: %s", peer.Addr.String())
 
 	err := s.fsm.Join(request.GetFQDN(), request.GetID())
 	response := &JoinResponse{}
