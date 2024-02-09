@@ -41,6 +41,7 @@ func main() {
 	var sm *fsm.FiniteStateMachine
 	// sync evictions to replicas
 	cb := func(key string, value []byte) {
+		telemetry.Log().Infof("Syncing eviction of key %s from master", key)
 		go sm.Delete(key)
 	}
 

@@ -124,14 +124,6 @@ func (fsm *FiniteStateMachine) DiscoverLeader() (raft.ServerAddress, raft.Server
 	return fsm.raft.LeaderWithID()
 }
 
-func (fsm *FiniteStateMachine) Get(key string) (cache.Entry, bool) {
-	if !fsm.isRaftLeader() {
-		return fsm.Cache.Peek(key)
-	}
-
-	return fsm.Cache.Get(key)
-}
-
 func (fsm *FiniteStateMachine) Cap() int64 {
 	if !fsm.isRaftLeader() {
 		return fsm.cap.Load()
