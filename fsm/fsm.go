@@ -294,6 +294,10 @@ func (fsm *FiniteStateMachine) Apply(l *raft.Log) interface{} {
 
 func (fsm *FiniteStateMachine) Join(nodeID, addr string) error {
 	telemetry.Log().Infof("Received join request from node %s at %s", nodeID, addr)
+	if !fsm.isRaftLeader() {
+		telemetry.Log().Errorf("Calling Join on follower")
+		return ErrNotRaftLeader
+	}
 	configFuture := fsm.raft.GetConfiguration()
 	if err := configFuture.Error(); err != nil {
 		telemetry.Log().Errorf("Failed to get raft configuration: %v", err)

@@ -264,3 +264,29 @@ func (s *nanoboxServer) Resize(ctx context.Context, request *ResizeRequest) (*Re
 
 	return response, err
 }
+
+func (s *nanoboxServer) Join(ctx context.Context, request *JoinRequest) (*JoinResponse, error) {
+	span := trace.SpanFromContext(ctx)
+	peer, _ := peer.FromContext(ctx)
+
+	telemetry.Log().Infof("[JOIN] from %s", peer.Addr.String())
+
+	err := s.fsm.Join(request.GetFQDN(), request.GetID())
+	response := &JoinResponse{}
+	if err != nil {
+		switch {
+		case errors.Is(err, fsm.ErrNotRaftLeader):
+			response.ErrorCode = ErrorCode_NOTMASTER
+
+		default:
+			response.ErrorCode = ErrorCode_INTERNAL
+		}
+	}
+
+	span.SetAttributes(
+		attribute.String("req.from", peer.Addr.String()),
+		attribute.String("req.err", response.GetErrorCode().String()),
+	)
+
+	return response, err
+}

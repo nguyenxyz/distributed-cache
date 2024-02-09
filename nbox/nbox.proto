@@ -32,7 +32,9 @@ service Nanobox {
 
     rpc Cap(SizeOrCapRequest) returns (SizeOrCapResponse) {}
 
-    rpc Resize(ResizeRequest) returns (ResizeResponse) {}    
+    rpc Resize(ResizeRequest) returns (ResizeResponse) {}
+
+    rpc Join(JoinRequest) returns (JoinResponse) {}    
 }
 
 message Entry {
@@ -103,5 +105,13 @@ message ResizeRequest {
     int64 size = 1;
 }
 message ResizeResponse {
+    ErrorCode errorCode = 1;
+}
+
+message JoinRequest {
+    string FQDN = 1;
+    string ID = 2;
+}
+message JoinResponse {
     ErrorCode errorCode = 1;
 }

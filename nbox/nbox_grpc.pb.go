@@ -35,6 +35,7 @@ type NanoboxClient interface {
 	Size(ctx context.Context, in *SizeOrCapRequest, opts ...grpc.CallOption) (*SizeOrCapResponse, error)
 	Cap(ctx context.Context, in *SizeOrCapRequest, opts ...grpc.CallOption) (*SizeOrCapResponse, error)
 	Resize(ctx context.Context, in *ResizeRequest, opts ...grpc.CallOption) (*ResizeResponse, error)
+	Join(ctx context.Context, in *JoinRequest, opts ...grpc.CallOption) (*JoinResponse, error)
 }
 
 type nanoboxClient struct {
@@ -153,6 +154,15 @@ func (c *nanoboxClient) Resize(ctx context.Context, in *ResizeRequest, opts ...g
 	return out, nil
 }
 
+func (c *nanoboxClient) Join(ctx context.Context, in *JoinRequest, opts ...grpc.CallOption) (*JoinResponse, error) {
+	out := new(JoinResponse)
+	err := c.cc.Invoke(ctx, "/nbox.Nanobox/Join", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // NanoboxServer is the server API for Nanobox service.
 // All implementations must embed UnimplementedNanoboxServer
 // for forward compatibility
@@ -170,6 +180,7 @@ type NanoboxServer interface {
 	Size(context.Context, *SizeOrCapRequest) (*SizeOrCapResponse, error)
 	Cap(context.Context, *SizeOrCapRequest) (*SizeOrCapResponse, error)
 	Resize(context.Context, *ResizeRequest) (*ResizeResponse, error)
+	Join(context.Context, *JoinRequest) (*JoinResponse, error)
 	mustEmbedUnimplementedNanoboxServer()
 }
 
@@ -212,6 +223,9 @@ func (UnimplementedNanoboxServer) Cap(context.Context, *SizeOrCapRequest) (*Size
 }
 func (UnimplementedNanoboxServer) Resize(context.Context, *ResizeRequest) (*ResizeResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Resize not implemented")
+}
+func (UnimplementedNanoboxServer) Join(context.Context, *JoinRequest) (*JoinResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Join not implemented")
 }
 func (UnimplementedNanoboxServer) mustEmbedUnimplementedNanoboxServer() {}
 
@@ -442,6 +456,24 @@ func _Nanobox_Resize_Handler(srv interface{}, ctx context.Context, dec func(inte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Nanobox_Join_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(JoinRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NanoboxServer).Join(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/nbox.Nanobox/Join",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NanoboxServer).Join(ctx, req.(*JoinRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Nanobox_ServiceDesc is the grpc.ServiceDesc for Nanobox service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -496,6 +528,10 @@ var Nanobox_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Resize",
 			Handler:    _Nanobox_Resize_Handler,
+		},
+		{
+			MethodName: "Join",
+			Handler:    _Nanobox_Join_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
