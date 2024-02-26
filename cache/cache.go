@@ -20,13 +20,13 @@ type Cache interface {
 	// Purge removes all keys currently in the cache
 	Purge()
 
-	// Peek returns the entry for the the given key if found without updating the cache's eviction policy
+	// Peek returns the entry for the given key if found without updating the cache's eviction policy
 	Peek(key string) (Entry, bool)
 
 	// Keys returns a slice of the keys in the cache
 	Keys() []string
 
-	// Values returns a read-only slice of the entries in the cache
+	// Entries returns a read-only slice of the entries in the cache
 	Entries() []Entry
 
 	// Size returns the number of entries in the cache

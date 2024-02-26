@@ -176,7 +176,7 @@ func (lc *LRUCache) Peek(key string) (Entry, bool) {
 		return v.(*list.Element).Value.(Item), true
 	}
 
-	return &Item{}, false
+	return Item{}, false
 }
 
 func (lc *LRUCache) Keys() []string {
