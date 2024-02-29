@@ -3,6 +3,7 @@ package apiserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
@@ -89,6 +90,11 @@ func (c *ClusterController) Set(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if request.Value == nil {
+		WriteJSONErrorResponse(w, r, NewBadRequestError(errors.New("value must be provided")))
+		return
+	}
+
 	b, err := json.Marshal(request.Value)
 	if err != nil {
 		WriteJSONErrorResponse(w, r, NewInternalError(err))
@@ -105,13 +111,12 @@ func (c *ClusterController) Set(w http.ResponseWriter, r *http.Request) {
 	}
 
 	client, release, err := c.DialMaster(r.Context())
-	defer release()
-
 	if err != nil {
 		WriteJSONErrorResponse(w, r, NewInternalError(err))
 		return
 	}
 
+	defer release()
 	res, err := client.Set(r.Context(), &nbox.SetOrUpdateRequest{
 		Key:   key,
 		Value: b,
@@ -120,6 +125,7 @@ func (c *ClusterController) Set(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		WriteJSONErrorResponse(w, r, NewInternalError(err))
+		return
 	}
 
 	WriteJSONResponseWithStatus(w, r, http.StatusCreated, HTTPResponse{
@@ -137,6 +143,11 @@ func (c *ClusterController) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if request.Value == nil {
+		WriteJSONErrorResponse(w, r, NewBadRequestError(errors.New("value must be provided")))
+		return
+	}
+
 	b, err := json.Marshal(request.Value)
 	if err != nil {
 		WriteJSONErrorResponse(w, r, NewInternalError(err))
@@ -145,13 +156,12 @@ func (c *ClusterController) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	client, release, err := c.DialMaster(r.Context())
-	defer release()
-
 	if err != nil {
 		WriteJSONErrorResponse(w, r, NewInternalError(err))
 		return
 	}
 
+	defer release()
 	res, err := client.Update(r.Context(), &nbox.SetOrUpdateRequest{
 		Key:   key,
 		Value: b,
@@ -159,6 +169,7 @@ func (c *ClusterController) Update(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		WriteJSONErrorResponse(w, r, NewInternalError(err))
+		return
 	}
 
 	WriteJSONResponseWithStatus(w, r, http.StatusCreated, HTTPResponse{
@@ -168,8 +179,125 @@ func (c *ClusterController) Update(w http.ResponseWriter, r *http.Request) {
 
 }
 
+func (c *ClusterController) Delete(w http.ResponseWriter, r *http.Request) {
+	key := r.URL.Query().Get("key")
+	client, release, err := c.DialMaster(r.Context())
+	if err != nil {
+		WriteJSONErrorResponse(w, r, NewInternalError(err))
+		return
+	}
+
+	defer release()
+	res, err := client.Delete(r.Context(), &nbox.DeleteOrPurgeRequest{Key: key})
+	if err != nil {
+		WriteJSONErrorResponse(w, r, NewInternalError(err))
+		return
+	}
+
+	WriteJSONResponse(w, r, HTTPResponse{
+		Command: "DELETE",
+		Flag:    res.GetFlag(),
+	})
+}
+
+func (c *ClusterController) Purge(w http.ResponseWriter, r *http.Request) {
+	client, release, err := c.DialMaster(r.Context())
+	if err != nil {
+		WriteJSONErrorResponse(w, r, NewInternalError(err))
+		return
+	}
+
+	defer release()
+	_, err = client.Purge(r.Context(), &nbox.DeleteOrPurgeRequest{})
+	if err != nil {
+		WriteJSONErrorResponse(w, r, NewInternalError(err))
+		return
+	}
+
+	WriteJSONResponse(w, r, HTTPResponse{
+		Command: "PURGE",
+	})
+}
+
+func (c *ClusterController) Keys(w http.ResponseWriter, r *http.Request) {
+	res, err := c.client.Keys(r.Context(), &nbox.KeysRequest{})
+	if err != nil {
+		WriteJSONErrorResponse(w, r, NewInternalError(err))
+	}
+
+	WriteJSONResponse(w, r, HTTPResponse{
+		Command: "KEYS",
+		Value:   res.GetKeys(),
+	})
+}
+
+func (c *ClusterController) Entries(w http.ResponseWriter, r *http.Request) {
+	res, err := c.client.Entries(r.Context(), &nbox.EntriesRequest{})
+	if err != nil {
+		WriteJSONErrorResponse(w, r, NewInternalError(err))
+	}
+
+	WriteJSONResponse(w, r, HTTPResponse{
+		Command: "ENTRIES",
+		Value:   res.GetEntries(),
+	})
+}
+
+func (c *ClusterController) Size(w http.ResponseWriter, r *http.Request) {
+	res, err := c.client.Size(r.Context(), &nbox.SizeOrCapRequest{})
+	if err != nil {
+		WriteJSONErrorResponse(w, r, NewInternalError(err))
+	}
+
+	WriteJSONResponse(w, r, HTTPResponse{
+		Command: "SIZE",
+		Value:   res.GetSize(),
+	})
+}
+
+func (c *ClusterController) Cap(w http.ResponseWriter, r *http.Request) {
+	res, err := c.client.Cap(r.Context(), &nbox.SizeOrCapRequest{})
+	if err != nil {
+		WriteJSONErrorResponse(w, r, NewInternalError(err))
+	}
+
+	WriteJSONResponse(w, r, HTTPResponse{
+		Command: "CAP",
+		Value:   res.GetSize(),
+	})
+}
+
+func (c *ClusterController) Resize(w http.ResponseWriter, r *http.Request) {
+	var request HTTPRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		WriteJSONErrorResponse(w, r, NewBadRequestError(err))
+		return
+	}
+
+	if request.Size == nil {
+		WriteJSONErrorResponse(w, r, NewBadRequestError(errors.New("size must be provided")))
+		return
+	}
+
+	client, release, err := c.DialMaster(r.Context())
+	if err != nil {
+		WriteJSONErrorResponse(w, r, NewInternalError(err))
+		return
+	}
+
+	defer release()
+	_, err = client.Resize(r.Context(), &nbox.ResizeRequest{})
+	if err != nil {
+		WriteJSONErrorResponse(w, r, NewInternalError(err))
+		return
+	}
+
+	WriteJSONResponse(w, r, HTTPResponse{
+		Command: "RESIZE",
+	})
+}
+
 func (c *ClusterController) DialMaster(ctx context.Context) (client nbox.NanoboxClient, release func() error, err error) {
-	release = func() error { return nil }
 	master, err := c.client.DiscoverMaster(ctx, &nbox.DiscoverMasterRequest{})
 	if err != nil {
 		return
@@ -197,4 +325,5 @@ type HTTPResponse struct {
 type HTTPRequest struct {
 	Value interface{} `json:"value"`
 	TTL   string      `json:"ttl"`
+	Size  *int        `json:"size"`
 }
