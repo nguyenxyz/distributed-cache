@@ -26,17 +26,17 @@ func NewServer(cc *ClusterController) (*Server, error) {
 			WriteTimeout: 15 * time.Second,
 			IdleTimeout:  15 * time.Second,
 		},
-		cc: cc,
+		router: chi.NewMux(),
+		cc:     cc,
 	}
 
-	server.setupRouter()
+	server.setupRoutes()
 	server.setupMiddleware()
 
 	return server, nil
 }
 
-func (s *Server) setupRouter() {
-	s.router = chi.NewMux()
+func (s *Server) setupRoutes() {
 	s.router.Get("/GET/{key}", s.cc.Get)
 	s.router.Get("/PEEK/{key}", s.cc.Peek)
 	s.router.Put("/SET/{key}", s.cc.Set)
@@ -51,6 +51,7 @@ func (s *Server) setupRouter() {
 }
 
 func (s *Server) setupMiddleware() {
+	s.router.Use(KeyExtractorMiddleware)
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {

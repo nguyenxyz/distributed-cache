@@ -23,8 +23,7 @@ func NewClusterController(ctx context.Context, client nbox.NanoboxClient) *Clust
 }
 
 func (c *ClusterController) Get(w http.ResponseWriter, r *http.Request) {
-	key := r.URL.Query().Get("key")
-	res, err := c.client.Get(r.Context(), &nbox.GetOrPeakRequest{Key: key})
+	res, err := c.client.Get(r.Context(), &nbox.GetOrPeakRequest{Key: extractKeyFromRequest(r)})
 	if err != nil {
 		WriteJSONErrorResponse(w, r, NewInternalError(err))
 		return
@@ -53,8 +52,7 @@ func (c *ClusterController) Get(w http.ResponseWriter, r *http.Request) {
 }
 
 func (c *ClusterController) Peek(w http.ResponseWriter, r *http.Request) {
-	key := r.URL.Query().Get("key")
-	res, err := c.client.Peek(r.Context(), &nbox.GetOrPeakRequest{Key: key})
+	res, err := c.client.Peek(r.Context(), &nbox.GetOrPeakRequest{Key: extractKeyFromRequest(r)})
 	if err != nil {
 		WriteJSONErrorResponse(w, r, NewInternalError(err))
 		return
@@ -83,7 +81,6 @@ func (c *ClusterController) Peek(w http.ResponseWriter, r *http.Request) {
 }
 
 func (c *ClusterController) Set(w http.ResponseWriter, r *http.Request) {
-	key := r.URL.Query().Get("key")
 	var request HTTPRequest
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		WriteJSONErrorResponse(w, r, NewBadRequestError(err))
@@ -118,7 +115,7 @@ func (c *ClusterController) Set(w http.ResponseWriter, r *http.Request) {
 
 	defer release()
 	res, err := client.Set(r.Context(), &nbox.SetOrUpdateRequest{
-		Key:   key,
+		Key:   extractKeyFromRequest(r),
 		Value: b,
 		Ttl:   durationpb.New(ttl),
 	})
@@ -136,7 +133,6 @@ func (c *ClusterController) Set(w http.ResponseWriter, r *http.Request) {
 }
 
 func (c *ClusterController) Update(w http.ResponseWriter, r *http.Request) {
-	key := r.URL.Query().Get("key")
 	var request HTTPRequest
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		WriteJSONErrorResponse(w, r, NewBadRequestError(err))
@@ -163,7 +159,7 @@ func (c *ClusterController) Update(w http.ResponseWriter, r *http.Request) {
 
 	defer release()
 	res, err := client.Update(r.Context(), &nbox.SetOrUpdateRequest{
-		Key:   key,
+		Key:   extractKeyFromRequest(r),
 		Value: b,
 	})
 
@@ -180,7 +176,6 @@ func (c *ClusterController) Update(w http.ResponseWriter, r *http.Request) {
 }
 
 func (c *ClusterController) Delete(w http.ResponseWriter, r *http.Request) {
-	key := r.URL.Query().Get("key")
 	client, release, err := c.DialMaster(r.Context())
 	if err != nil {
 		WriteJSONErrorResponse(w, r, NewInternalError(err))
@@ -188,7 +183,7 @@ func (c *ClusterController) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	defer release()
-	res, err := client.Delete(r.Context(), &nbox.DeleteOrPurgeRequest{Key: key})
+	res, err := client.Delete(r.Context(), &nbox.DeleteOrPurgeRequest{Key: extractKeyFromRequest(r)})
 	if err != nil {
 		WriteJSONErrorResponse(w, r, NewInternalError(err))
 		return
@@ -326,4 +321,13 @@ type HTTPRequest struct {
 	Value interface{} `json:"value"`
 	TTL   string      `json:"ttl"`
 	Size  *int        `json:"size"`
+}
+
+func extractKeyFromRequest(r *http.Request) string {
+	key := r.Context().Value("key")
+	if key, ok := key.(string); ok {
+		return key
+	}
+
+	return ""
 }
