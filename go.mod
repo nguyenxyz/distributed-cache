@@ -3,6 +3,7 @@ module github.com/ph-ngn/nanobox
 go 1.19
 
 require (
+	github.com/go-chi/chi v1.5.5
 	github.com/hashicorp/raft v1.6.0
 	github.com/hashicorp/raft-boltdb/v2 v2.3.0
 	go.opentelemetry.io/otel v1.22.0
