@@ -14,12 +14,31 @@ type (
 	// EvictionCallBack is used to register a callback when a cache entry is evicted
 	EvictionCallBack func(key string, value []byte)
 
-	// Bucket is a container for expirable elements for O(1) removal
-	Bucket map[string]*list.Element
+	// Bucket is a container for expirable cache entry for O(1) removal
+	TimeBucket struct {
+		m sync.Map
+	}
 
 	// Option is used to apply configurations to the cache
 	Option func(*LRUCache)
 )
+
+func (tb *TimeBucket) Remove(timepoint time.Time, key string) {
+	if expiryMap, ok := tb.m.Load(timepoint.Unix()); ok {
+		expiryMap.(*sync.Map).Delete(key)
+	}
+}
+
+func (tb *TimeBucket) Add(timepoint time.Time, key string) {
+	expiryMap, _ := tb.m.LoadOrStore(timepoint.Unix(), new(sync.Map))
+	expiryMap.(*sync.Map).Store(key, struct{}{})
+}
+
+func (tb *TimeBucket) Prune(timepoint time.Time, callback func(k, v interface{}) bool) {
+	if expiryMap, ok := tb.m.LoadAndDelete(timepoint.Unix()); ok {
+		expiryMap.(*sync.Map).Range(callback)
+	}
+}
 
 type LRUCache struct {
 	// The underlying kv map
@@ -35,14 +54,14 @@ type LRUCache struct {
 	lru list.List
 
 	// Unix time bucketed expiry map of cache entries
-	expiry sync.Map
+	expiry *TimeBucket
 
 	// Callback when a cache entry is evicted
 	onEvict EvictionCallBack
 }
 
 func NewLRU(ctx context.Context, options ...Option) *LRUCache {
-	lru := &LRUCache{}
+	lru := &LRUCache{expiry: &TimeBucket{}}
 	lru.cap.Store(-1)
 	for _, opt := range options {
 		opt(lru)
@@ -73,10 +92,7 @@ func (lc *LRUCache) Set(key string, value []byte, ttl time.Duration) bool {
 		expiry = now.Add(ttl)
 	}
 
-	// not safe when there's multiple concurrent writes to the same key
-	// value will be overwritten in kv but still remains in lru (1)
 	lc.lm.Lock()
-	// This is for fixing the mentioned problem. need to check again
 	if _, ok := lc.kv.Load(key); !ok {
 		lc.kv.Store(key, lc.lru.PushFront(Item{
 			key:          key,
@@ -86,32 +102,25 @@ func (lc *LRUCache) Set(key string, value []byte, ttl time.Duration) bool {
 			expiryTime:   expiry,
 		}))
 	}
-
 	lc.lm.Unlock()
 
 	if !expiry.IsZero() {
-		timepoint := expiry.Unix()
-		bucket, _ := lc.expiry.LoadOrStore(timepoint, new(sync.Map))
-		bucket.(*sync.Map).Store(key, nil)
+		lc.expiry.Add(expiry, key)
 	}
 
 	size, cap := lc.Size(), lc.Cap()
 	evict := cap > 0 && size > cap
-	// when two or more goroutines, after reading the size concurrently, all decide to
-	// carry out evictions, it could lead to duplicate evictions (2)
 	if evict {
 		lc.lm.Lock()
 		defer lc.lm.Unlock()
-		// have to check again, same problem above as (1)
+
 		for size, cap := lc.lru.Len(), lc.Cap(); cap > 0 && int64(size) > cap; size, cap = lc.lru.Len(), lc.Cap() {
 			element := lc.lru.Back()
 			if _, ok := lc.kv.LoadAndDelete(element.Value.(Item).Key()); ok {
 				item := element.Value.(Item)
 				k, v := item.Key(), item.Value()
 				if timepoint := item.ExpiryTime(); !timepoint.IsZero() {
-					if bucket, ok := lc.expiry.Load(timepoint.Unix()); ok {
-						bucket.(*sync.Map).Delete(k)
-					}
+					lc.expiry.Remove(timepoint, k)
 				}
 				lc.lru.Remove(element)
 				if lc.onEvict != nil {
@@ -147,9 +156,7 @@ func (lc *LRUCache) Delete(key string) bool {
 	if v, ok := lc.kv.LoadAndDelete(key); ok {
 		element := v.(*list.Element)
 		if timepoint := element.Value.(Item).ExpiryTime(); !timepoint.IsZero() {
-			if bucket, ok := lc.expiry.Load(timepoint.Unix()); ok {
-				bucket.(*sync.Map).Delete(key)
-			}
+			lc.expiry.Remove(timepoint, key)
 		}
 
 		lc.lm.Lock()
@@ -236,8 +243,7 @@ func (lc *LRUCache) Recover(entries []Entry) {
 		}
 
 		if et := e.ExpiryTime(); !et.IsZero() {
-			bucket, _ := lc.expiry.LoadOrStore(et.Unix(), new(sync.Map))
-			bucket.(*sync.Map).Store(e.Key(), nil)
+			lc.expiry.Remove(et, e.Key())
 		}
 	}
 }
@@ -257,11 +263,7 @@ func (lc *LRUCache) runGarbageCollection(ctx context.Context) {
 				return
 
 			case <-ticker.C:
-				timepoint := time.Now().Unix() + 1
-				if bucket, ok := lc.expiry.LoadAndDelete(timepoint); ok {
-					bucket.(*sync.Map).Range(callback)
-				}
-
+				lc.expiry.Prune(time.Now().Add(time.Second), callback)
 			}
 		}
 	}()
