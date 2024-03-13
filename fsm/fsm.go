@@ -37,7 +37,7 @@ type Event struct {
 	Expiry time.Time `json:"expiry,omitempty"`
 }
 
-// FiniteStateMachine is a wrapper around Store and manages replication with Raft consensus
+// FiniteStateMachine is a wrapper around cache and manages replication with Raft consensus
 type FiniteStateMachine struct {
 	cache.Cache
 

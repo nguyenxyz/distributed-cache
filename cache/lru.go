@@ -14,7 +14,7 @@ type (
 	// EvictionCallBack is used to register a callback when a cache entry is evicted
 	EvictionCallBack func(key string, value []byte)
 
-	// Bucket is a container for expirable cache entry for O(1) removal
+	// Bucket is a container for expirable key for O(1) removal
 	TimeBucket struct {
 		m sync.Map
 	}
@@ -22,23 +22,6 @@ type (
 	// Option is used to apply configurations to the cache
 	Option func(*LRUCache)
 )
-
-func (tb *TimeBucket) Remove(timepoint time.Time, key string) {
-	if expiryMap, ok := tb.m.Load(timepoint.Unix()); ok {
-		expiryMap.(*sync.Map).Delete(key)
-	}
-}
-
-func (tb *TimeBucket) Add(timepoint time.Time, key string) {
-	expiryMap, _ := tb.m.LoadOrStore(timepoint.Unix(), new(sync.Map))
-	expiryMap.(*sync.Map).Store(key, struct{}{})
-}
-
-func (tb *TimeBucket) Prune(timepoint time.Time, callback func(k, v interface{}) bool) {
-	if expiryMap, ok := tb.m.LoadAndDelete(timepoint.Unix()); ok {
-		expiryMap.(*sync.Map).Range(callback)
-	}
-}
 
 type LRUCache struct {
 	// The underlying kv map
@@ -53,7 +36,7 @@ type LRUCache struct {
 	// Doubly linked list to keep track of the least recently used cache entries
 	lru list.List
 
-	// Unix time bucketed expiry map of cache entries
+	// Unix time bucket for expirable keys in the cache
 	expiry *TimeBucket
 
 	// Callback when a cache entry is evicted
@@ -230,20 +213,20 @@ func (lc *LRUCache) Resize(cap int64) {
 
 func (lc *LRUCache) Recover(entries []Entry) {
 	lc.Purge()
-	for _, e := range entries {
-		if e.TTL() != 0 {
-			lc.kv.Store(e.Key(), lc.lru.PushBack(Item{
-				key:          e.Key(),
-				value:        e.Value(),
-				lastUpdated:  e.LastUpdated(),
-				creationTime: e.CreationTime(),
-				expiryTime:   e.ExpiryTime(),
-				metadata:     e.Metadata(),
+	for _, ent := range entries {
+		if ent.TTL() != 0 {
+			lc.kv.Store(ent.Key(), lc.lru.PushBack(Item{
+				key:          ent.Key(),
+				value:        ent.Value(),
+				lastUpdated:  ent.LastUpdated(),
+				creationTime: ent.CreationTime(),
+				expiryTime:   ent.ExpiryTime(),
+				metadata:     ent.Metadata(),
 			}))
 		}
 
-		if et := e.ExpiryTime(); !et.IsZero() {
-			lc.expiry.Remove(et, e.Key())
+		if expiry := ent.ExpiryTime(); !expiry.IsZero() {
+			lc.expiry.Remove(expiry, ent.Key())
 		}
 	}
 }
@@ -267,6 +250,23 @@ func (lc *LRUCache) runGarbageCollection(ctx context.Context) {
 			}
 		}
 	}()
+}
+
+func (tb *TimeBucket) Remove(timepoint time.Time, key string) {
+	if expiryMap, ok := tb.m.Load(timepoint.Unix()); ok {
+		expiryMap.(*sync.Map).Delete(key)
+	}
+}
+
+func (tb *TimeBucket) Add(timepoint time.Time, key string) {
+	expiryMap, _ := tb.m.LoadOrStore(timepoint.Unix(), new(sync.Map))
+	expiryMap.(*sync.Map).Store(key, struct{}{})
+}
+
+func (tb *TimeBucket) Prune(timepoint time.Time, callback func(k, v interface{}) bool) {
+	if expiryMap, ok := tb.m.LoadAndDelete(timepoint.Unix()); ok {
+		expiryMap.(*sync.Map).Range(callback)
+	}
 }
 
 func WithCapacity(cap int64) Option {

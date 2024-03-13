@@ -30,8 +30,8 @@ func NewServer(cc *ClusterController) (*Server, error) {
 		cc:     cc,
 	}
 
-	server.setupRoutes()
 	server.setupMiddleware()
+	server.setupRoutes()
 
 	return server, nil
 }

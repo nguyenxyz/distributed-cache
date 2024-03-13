@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"time"
 
 	"github.com/ph-ngn/nanobox/cache"
 	"github.com/ph-ngn/nanobox/fsm"
@@ -10,6 +11,7 @@ import (
 	"github.com/ph-ngn/nanobox/telemetry"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/keepalive"
 )
 
 var (
@@ -66,7 +68,10 @@ func main() {
 		}
 	}
 
-	nbox := nbox.NewNanoboxServer(ctx, sm, grpc.NewServer())
+	nbox := nbox.NewNanoboxServer(ctx, sm, grpc.NewServer(grpc.KeepaliveParams(keepalive.ServerParameters{
+		MaxConnectionAge:      30 * time.Second,
+		MaxConnectionAgeGrace: 10 * time.Second,
+	})))
 	if err := nbox.ListenAndServe(grpcAddr); err != nil {
 		panic(err.Error())
 	}

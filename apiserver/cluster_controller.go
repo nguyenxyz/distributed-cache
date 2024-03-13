@@ -29,24 +29,24 @@ func (c *ClusterController) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var ew *EntryWrapper
-	if e := res.GetEntry(); e != nil {
+	var dent *DecodedEntry
+	if ent := res.GetEntry(); ent != nil {
 		var value interface{}
-		if err := json.Unmarshal(e.Value, &value); err != nil {
+		if err := json.Unmarshal(ent.Value, &value); err != nil {
 			WriteJSONErrorResponse(w, r, NewInternalError(err))
 			telemetry.Log().Errorf("[ClusterController/GET]: %v", err)
 			return
 		}
 
-		ew = &EntryWrapper{
-			Entry: e,
+		dent = &DecodedEntry{
+			Entry: ent,
 			Value: value,
 		}
 	}
 
 	WriteJSONResponse(w, r, HTTPResponse{
 		Command: "GET",
-		Value:   ew,
+		Value:   dent,
 		Flag:    res.GetFlag(),
 	})
 }
@@ -58,55 +58,50 @@ func (c *ClusterController) Peek(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var ew *EntryWrapper
-	if e := res.GetEntry(); e != nil {
+	var dent *DecodedEntry
+	if ent := res.GetEntry(); ent != nil {
 		var value interface{}
-		if err := json.Unmarshal(e.Value, &value); err != nil {
+		if err := json.Unmarshal(ent.Value, &value); err != nil {
 			WriteJSONErrorResponse(w, r, NewInternalError(err))
 			telemetry.Log().Errorf("[ClusterController/PEEK]: %v", err)
 			return
 		}
 
-		ew = &EntryWrapper{
-			Entry: e,
+		dent = &DecodedEntry{
+			Entry: ent,
 			Value: value,
 		}
 	}
 
 	WriteJSONResponse(w, r, HTTPResponse{
 		Command: "PEEK",
-		Value:   ew,
+		Value:   dent,
 		Flag:    res.GetFlag(),
 	})
 }
 
 func (c *ClusterController) Set(w http.ResponseWriter, r *http.Request) {
 	var request HTTPRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+	sanitize := func() error {
+		var err error
+		err = errors.Join(err, json.NewDecoder(r.Body).Decode(&request))
+		if request.Value == nil {
+			err = errors.Join(err, errors.New("value must be provided"))
+		}
+		if _, terr := time.ParseDuration(request.TTL); err != nil {
+			err = errors.Join(err, terr)
+		}
+
+		return err
+	}
+
+	if err := sanitize(); err != nil {
 		WriteJSONErrorResponse(w, r, NewBadRequestError(err))
 		return
 	}
 
-	if request.Value == nil {
-		WriteJSONErrorResponse(w, r, NewBadRequestError(errors.New("value must be provided")))
-		return
-	}
-
-	b, err := json.Marshal(request.Value)
-	if err != nil {
-		WriteJSONErrorResponse(w, r, NewInternalError(err))
-		telemetry.Log().Errorf("[ClusterController/SET]: %v", err)
-		return
-	}
-	var ttl time.Duration
-	if len(request.TTL) > 0 {
-		ttl, err = time.ParseDuration(request.TTL)
-		if err != nil {
-			WriteJSONErrorResponse(w, r, NewBadRequestError(err))
-			return
-		}
-	}
-
+	b, _ := json.Marshal(request.Value)
+	ttl, _ := time.ParseDuration(request.TTL)
 	client, release, err := c.DialMaster(r.Context())
 	if err != nil {
 		WriteJSONErrorResponse(w, r, NewInternalError(err))
@@ -134,23 +129,22 @@ func (c *ClusterController) Set(w http.ResponseWriter, r *http.Request) {
 
 func (c *ClusterController) Update(w http.ResponseWriter, r *http.Request) {
 	var request HTTPRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+	sanitize := func() error {
+		var err error
+		err = errors.Join(err, json.NewDecoder(r.Body).Decode(&request))
+		if request.Value == nil {
+			err = errors.Join(err, errors.New("value must be provided"))
+		}
+
+		return err
+	}
+
+	if err := sanitize(); err != nil {
 		WriteJSONErrorResponse(w, r, NewBadRequestError(err))
 		return
 	}
 
-	if request.Value == nil {
-		WriteJSONErrorResponse(w, r, NewBadRequestError(errors.New("value must be provided")))
-		return
-	}
-
-	b, err := json.Marshal(request.Value)
-	if err != nil {
-		WriteJSONErrorResponse(w, r, NewInternalError(err))
-		telemetry.Log().Errorf("[ClusterController/UPDATE]: %v", err)
-		return
-	}
-
+	b, _ := json.Marshal(request.Value)
 	client, release, err := c.DialMaster(r.Context())
 	if err != nil {
 		WriteJSONErrorResponse(w, r, NewInternalError(err))
@@ -264,13 +258,18 @@ func (c *ClusterController) Cap(w http.ResponseWriter, r *http.Request) {
 
 func (c *ClusterController) Resize(w http.ResponseWriter, r *http.Request) {
 	var request HTTPRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		WriteJSONErrorResponse(w, r, NewBadRequestError(err))
-		return
+	sanitize := func() error {
+		var err error
+		err = errors.Join(err, json.NewDecoder(r.Body).Decode(&request))
+		if request.Size == nil {
+			err = errors.Join(errors.New("size must be provided"))
+		}
+
+		return err
 	}
 
-	if request.Size == nil {
-		WriteJSONErrorResponse(w, r, NewBadRequestError(errors.New("size must be provided")))
+	if err := sanitize(); err != nil {
+		WriteJSONErrorResponse(w, r, NewBadRequestError(err))
 		return
 	}
 
@@ -306,7 +305,7 @@ func (c *ClusterController) DialMaster(ctx context.Context) (client nbox.Nanobox
 	return nbox.NewNanoboxClient(conn), conn.Close, nil
 }
 
-type EntryWrapper struct {
+type DecodedEntry struct {
 	*nbox.Entry
 	Value interface{} `json:"value"`
 }
