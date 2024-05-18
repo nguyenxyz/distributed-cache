@@ -28,7 +28,7 @@ spec:
     spec:
       containers:
       - name: apiserver
-        image: api.dockerfile # push to dockerhub
+        image: andyj29/api:latest
         ports:
         - name: http
           containerPort: 9000

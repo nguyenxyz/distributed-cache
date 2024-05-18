@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/go-chi/chi"
 	"github.com/ph-ngn/nanobox/nbox"
 	"github.com/ph-ngn/nanobox/telemetry"
 	"google.golang.org/grpc"
@@ -32,7 +33,7 @@ func (c *ClusterController) Get(w http.ResponseWriter, r *http.Request) {
 	var dent *DecodedEntry
 	if ent := res.GetEntry(); ent != nil {
 		var value interface{}
-		if err := json.Unmarshal(ent.Value, &value); err != nil {
+		if err := json.Unmarshal(ent.GetValue(), &value); err != nil {
 			WriteJSONErrorResponse(w, r, NewInternalError(err))
 			telemetry.Log().Errorf("[ClusterController/GET]: %v", err)
 			return
@@ -323,10 +324,5 @@ type HTTPRequest struct {
 }
 
 func extractKeyFromRequest(r *http.Request) string {
-	key := r.Context().Value("key")
-	if key, ok := key.(string); ok {
-		return key
-	}
-
-	return ""
+	return chi.URLParam(r, "key")
 }

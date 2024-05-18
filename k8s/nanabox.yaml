@@ -30,7 +30,7 @@ spec:
     spec:
       containers:
       - name: nanobox
-        image: nanobox.dockerfile # push to dockerhub
+        image: andyj29/nanobox:latest
         ports:
         - name: grpc
           containerPort: 8000

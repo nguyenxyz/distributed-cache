@@ -26,7 +26,7 @@ func NewServer(cc *ClusterController) (*Server, error) {
 			WriteTimeout: 15 * time.Second,
 			IdleTimeout:  15 * time.Second,
 		},
-		router: chi.NewMux(),
+		router: chi.NewRouter(),
 		cc:     cc,
 	}
 
@@ -51,7 +51,6 @@ func (s *Server) setupRoutes() {
 }
 
 func (s *Server) setupMiddleware() {
-	s.router.Use(KeyExtractorMiddleware)
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {

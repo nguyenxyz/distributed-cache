@@ -16,7 +16,7 @@ func main() {
 
 	telemetry.Init(ctx)
 
-	conn, err := grpc.DialContext(ctx, "dns:///nanobox.default.svc.cluster.local:4000",
+	conn, err := grpc.DialContext(ctx, "localhost:8000",
 		grpc.WithDefaultServiceConfig(`{"loadBalancingConfig": [{"round_robin":{}}]}`),
 		grpc.WithTransportCredentials(insecure.NewCredentials()))
 

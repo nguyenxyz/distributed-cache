@@ -60,7 +60,7 @@ func (c *Config) validate() error {
 	}
 
 	if c.RaftBindAddr == "" || c.RaftDir == "" || c.FQDN == "" || c.ID == "" {
-		return errors.New("RaftAddr, RaftDir, RaftID must be provided")
+		return errors.New("RaftAddr, RaftDir, RaftFQDN, RaftID must be provided")
 	}
 
 	return nil
