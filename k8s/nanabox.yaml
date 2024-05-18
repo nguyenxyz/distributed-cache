@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: nanobox
+spec:
+  ports:
+  - name: grpc
+    port: 8000
+  - name: raft
+    port: 4000
+  clusterIP: None
+  selector:
+    app: nanobox
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: nanobox
+spec:
+  serviceName: "nanobox"
+  replicas: 4
+  selector:
+    matchLabels:
+      app: nanobox
+  template:
+    metadata:
+      labels:
+        app: nanobox
+    spec:
+      containers:
+      - name: nanobox
+        image: nanobox.dockerfile # push to dockerhub
+        ports:
+        - name: grpc
+          containerPort: 8000
+        - name: raft
+          containerPort: 4000
+        
+
+
