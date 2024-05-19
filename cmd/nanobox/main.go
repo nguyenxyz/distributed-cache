@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
+	"os"
 	"time"
 
 	"github.com/ph-ngn/nanobox/cache"
@@ -22,13 +24,27 @@ var (
 
 func init() {
 	//"nanobox-0.nanobox.default.svc.cluster.local:8000"
-	flag.StringVar(&grpcAddr, "grpc", "localhost:8000", "gRPC address")
-	flag.StringVar(&RaftBindAddr, "raft", "localhost:4000", "Raft local bind address")
+	flag.StringVar(&grpcAddr, "grpc", "0.0.0.0:8000", "gRPC address")
+	flag.StringVar(&RaftBindAddr, "raft", "0.0.0.0:4000", "Raft local bind address")
 	flag.StringVar(&RaftDir, "raftdir", "./raftdir", "Raft directory for storing logs and snapshots")
 	//"nanobox-0.nanobox.default.svc.cluster.local:4000"
-	flag.StringVar(&FQDN, "fqdn", "localhost:4000", "Raft cluster address")
-	flag.StringVar(&ID, "id", "0", "Raft node ID")
-	flag.BoolVar(&BootstrapCluster, "bootstrap", false, "Bootstrap cluster flag")
+	var (
+		ordinal     = os.Getenv("ORDINAL_NUMBER")
+		podName     = os.Getenv("POD_NAME")
+		namespace   = os.Getenv("NAMESPACE")
+		serviceName = os.Getenv("SERVICE_NAME")
+	)
+
+	fqdn := "localhost:4000"
+	if podName != "" && namespace != "" && serviceName != "" {
+		fqdn = fmt.Sprintf("%s.%s.%s.svc.cluster.local:4000", podName, serviceName, namespace)
+	}
+
+	fmt.Println(fqdn)
+
+	flag.StringVar(&ID, "id", ordinal, "Raft node ID")
+	flag.StringVar(&FQDN, "fqdn", fqdn, "Raft cluster address")
+	flag.BoolVar(&BootstrapCluster, "bootstrap", ordinal == "0", "Bootstrap cluster flag")
 	flag.Int64Var(&Capacity, "cap", 1000, "Capacity of the cache")
 }
 
@@ -61,9 +77,10 @@ func main() {
 		panic(err.Error())
 	}
 
+	fmt.Println(BootstrapCluster)
 	if !BootstrapCluster {
 		//"nanobox-0.nanobox.default.svc.cluster.local:8000"
-		if err := join(ctx, "localhost:8000", FQDN, ID); err != nil {
+		if err := join(ctx, "nanobox-0.nanobox.default.svc.cluster.local:8000", FQDN, ID); err != nil {
 			telemetry.Log().Infof("Maybe already joined if pod restarts")
 		}
 	}

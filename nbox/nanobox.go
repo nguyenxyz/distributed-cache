@@ -6,6 +6,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ph-ngn/nanobox/fsm"
 	"github.com/ph-ngn/nanobox/telemetry"
@@ -19,7 +20,7 @@ import (
 
 var _ NanoboxServer = (*nanoboxServer)(nil)
 
-const PORT_PADDING = 4000
+const PortPadding = 4000
 
 type nanoboxServer struct {
 	UnimplementedNanoboxServer
@@ -282,6 +283,9 @@ func (s *nanoboxServer) Join(ctx context.Context, request *JoinRequest) (*JoinRe
 	peer, _ := peer.FromContext(ctx)
 
 	telemetry.Log().Infof("[JOIN] from: %s", peer.Addr.String())
+
+	// wait for the peers to finish setting up
+	time.Sleep(10 * time.Second)
 
 	err := s.fsm.Join(request.GetFQDN(), request.GetID())
 	response := &JoinResponse{}
