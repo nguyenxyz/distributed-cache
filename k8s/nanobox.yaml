@@ -36,6 +36,9 @@ spec:
           containerPort: 8000
         - name: raft
           containerPort: 4000
+        volumeMounts:
+        - name: raftdir
+          mountPath: ./raftdir
         env:
         - name: ORDINAL_NUMBER
           valueFrom:
@@ -51,5 +54,13 @@ spec:
               fieldPath: metadata.namespace
         - name: SERVICE_NAME
           value: "nanobox"
-
+  volumeClaimTemplates:
+  - metadata:
+      name: raftdir
+    spec:
+      accessModes: [ReadWriteOnce]
+      storageClassName: fast-disks
+      resources:
+        requests:
+          storage: 20Gi
 

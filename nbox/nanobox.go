@@ -59,7 +59,7 @@ func (s *nanoboxServer) DiscoverMaster(ctx context.Context, request *DiscoverMas
 	}
 
 	return &DiscoverMasterResponse{
-		FQDN: padding(string(fqdn), PORT_PADDING),
+		FQDN: padding(string(fqdn), PortPadding),
 		ID:   string(id),
 	}, nil
 }
