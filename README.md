@@ -3,10 +3,6 @@
 
 ![cluster](https://github.com/ph-ngn/nanobox/assets/93941060/e05533af-a200-43fd-b775-79923fcabe3a)
 
-
-
-
-
 ## Tech roadmap:
 - Raft consensus library: https://github.com/hashicorp/raft?tab=readme-ov-file
 - gRPC: https://grpc.io/
@@ -25,3 +21,9 @@
     1. Read requests to replicas can return evicted entries due to delay. In any case, reads are eventually consistentent if enabled on replicas
     2. Master won't know about key access statistics of replicas and so it won't be able update its lru accordingly which is very costly anyway
 
+
+## Demo:
+<img width="1091" alt="Screenshot 2024-05-20 at 5 44 54 PM" src="https://github.com/ph-ngn/nanobox/assets/93941060/85f627da-da26-49fc-822c-42e1221a2be3">
+<img width="972" alt="Screenshot 2024-05-20 at 5 45 40 PM" src="https://github.com/ph-ngn/nanobox/assets/93941060/277cb951-b641-420b-81d7-f0485265ab3a">
+
+  
