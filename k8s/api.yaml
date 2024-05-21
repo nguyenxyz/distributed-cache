@@ -3,11 +3,11 @@ kind: Service
 metadata:
   name: apiserver
 spec:
-  type: NodePort
+  type: LoadBalancer
   ports:
   - name: http
-    port: 9000
-    nodePort: 30005
+    port: 80
+    targetPort: 9000
   selector:
     app: apiserver
 
@@ -19,7 +19,7 @@ metadata:
   labels:
     app: apiserver
 spec:
-  replicas: 4
+  replicas: 2
   selector:
     matchLabels:
       app: apiserver
@@ -30,7 +30,8 @@ spec:
     spec:
       containers:
       - name: apiserver
-        image: andyj29/api:latest
+        image: andyj29/api:amd64
+        imagePullPolicy: Always
         ports:
         - name: http
           containerPort: 9000

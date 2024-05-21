@@ -19,7 +19,7 @@ metadata:
   name: nanobox
 spec:
   serviceName: "nanobox"
-  replicas: 4
+  replicas: 2
   selector:
     matchLabels:
       app: nanobox
@@ -30,7 +30,8 @@ spec:
     spec:
       containers:
       - name: nanobox
-        image: andyj29/nanobox:latest
+        image: andyj29/nanobox:amd64
+        imagePullPolicy: Always
         ports:
         - name: grpc
           containerPort: 8000
@@ -38,7 +39,7 @@ spec:
           containerPort: 4000
         volumeMounts:
         - name: raftdir
-          mountPath: ./raftdir
+          mountPath: /raftdir
         env:
         - name: ORDINAL_NUMBER
           valueFrom:
@@ -62,5 +63,5 @@ spec:
       storageClassName: fast-disks
       resources:
         requests:
-          storage: 20Gi
+          storage: 1Gi
 
