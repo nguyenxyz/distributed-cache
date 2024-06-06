@@ -54,7 +54,7 @@ func main() {
 
 	flag.Parse()
 
-	telemetry.Init(ctx)
+	telemetry.Init(ctx, FQDN, ID, fmt.Sprintf("%s.log", FQDN))
 
 	var sm *fsm.FiniteStateMachine
 	// sync evictions to replicas

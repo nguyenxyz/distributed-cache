@@ -14,7 +14,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	telemetry.Init(ctx)
+	telemetry.Init(ctx, "api-server", "N/A", "api-server.log")
 
 	conn, err := grpc.DialContext(ctx, "dns:///nanobox.default.svc.cluster.local:8000",
 		grpc.WithDefaultServiceConfig(`{"loadBalancingConfig": [{"round_robin":{}}]}`),

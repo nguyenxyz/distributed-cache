@@ -20,7 +20,7 @@ type zapLogger struct {
 	logger *zap.SugaredLogger
 }
 
-func newZapLogger(serviceName, serviceHost, logFileName string) *zapLogger {
+func newZapLogger(serviceName, serviceID, logFileName string) *zapLogger {
 	config := zap.NewProductionEncoderConfig()
 	config.TimeKey = "@timestamp"
 	config.MessageKey = "message"
@@ -32,7 +32,7 @@ func newZapLogger(serviceName, serviceHost, logFileName string) *zapLogger {
 	defaultLogLevel := zapcore.DebugLevel
 	logFields := zap.Fields(
 		zap.String("service.name", serviceName),
-		zap.String("service.host", serviceHost),
+		zap.String("service.id", serviceID),
 	)
 	core := zapcore.NewTee(
 		zapcore.NewCore(fileEncoder, zapcore.AddSync(logFile), defaultLogLevel),

@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
-	"strconv"
+	"os"
 	"strings"
 	"time"
 
@@ -19,8 +19,6 @@ import (
 )
 
 var _ NanoboxServer = (*nanoboxServer)(nil)
-
-const PortPadding = 4000
 
 type nanoboxServer struct {
 	UnimplementedNanoboxServer
@@ -50,16 +48,14 @@ func (s *nanoboxServer) ListenAndServe(addr string) error {
 
 func (s *nanoboxServer) DiscoverMaster(ctx context.Context, request *DiscoverMasterRequest) (*DiscoverMasterResponse, error) {
 	fqdn, id := s.fsm.DiscoverLeader()
-	padding := func(address string, increment int) string {
-		parts := strings.Split(address, ":")
-		port, _ := strconv.Atoi(parts[1])
-		newPort := port + increment
-		parts[1] = strconv.Itoa(newPort)
+	redirect := func(addr string) string {
+		parts := strings.Split(addr, ":")
+		parts[1] = os.Getenv("gRPC_ADDRESS")
 		return strings.Join(parts, ":")
 	}
 
 	return &DiscoverMasterResponse{
-		FQDN: padding(string(fqdn), PortPadding),
+		FQDN: redirect(string(fqdn)),
 		ID:   string(id),
 	}, nil
 }
