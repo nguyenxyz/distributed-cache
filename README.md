@@ -1,6 +1,7 @@
-## Cluster Infra Design
+## High Level Design
 
-![cluster](https://github.com/user-attachments/assets/15dc7f5e-8fc5-49a2-9c62-01b56d7d3e23)
+![cluster (1)](https://github.com/user-attachments/assets/720f44e2-ed22-4ffa-ade2-c1eb6ed4f27b)
+
 
 
 ## Challenges during implementation:
