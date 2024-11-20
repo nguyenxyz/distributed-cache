@@ -1,6 +1,7 @@
 ## High Level Design
 
-![cluster (1)](https://github.com/user-attachments/assets/720f44e2-ed22-4ffa-ade2-c1eb6ed4f27b)
+
+![cluster (2)](https://github.com/user-attachments/assets/8a5033b1-af9b-455e-aedf-72fc8c5f891f)
 
 
 
