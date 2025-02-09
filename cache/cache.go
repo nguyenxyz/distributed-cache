@@ -105,17 +105,14 @@ type MemoryCache struct {
 	evictPolicy EvictionPolicy
 
 	// Unix time bucket for expirable keys in the cache
-	unixTimeBucket *UnixTimeBucket
+	unixTimeBucket UnixTimeBucket
 
 	// Callback when a cache entry is evicted
 	onEvict EvictionCallBack
 }
 
 func NewMemoryCache(ctx context.Context, options ...Option) *MemoryCache {
-	cache := &MemoryCache{
-		evictPolicy:    &LRU{},
-		unixTimeBucket: &UnixTimeBucket{},
-	}
+	cache := &MemoryCache{}
 	cache.cap.Store(-1)
 	for _, opt := range options {
 		opt(cache)
@@ -192,11 +189,18 @@ func (memc *MemoryCache) Delete(key string) bool {
 }
 
 func (memc *MemoryCache) Purge() {
-
+	memc.kvmap.Range(func(k, v interface{}) bool {
+		memc.Delete(k.(string))
+		return true
+	})
 }
 
 func (memc *MemoryCache) Peek(key string) (Entry, bool) {
+	if v, ok := memc.kvmap.Load(key); ok {
+		return v.(Item), true
+	}
 
+	return Item{}, false
 }
 
 func (memc *MemoryCache) Keys() []string {
@@ -223,11 +227,40 @@ func (memc *MemoryCache) Resize(cap int64) {
 }
 
 func (memc *MemoryCache) Recover(entries []Entry) {
-
+	memc.Purge()
+	for _, entry := range entries[:min(int64(len(entries)), memc.Cap())] {
+		if entry.TTL() != 0 {
+			memc.kvmap.Store(entry.Key(), Item{
+				key:          entry.Key(),
+				value:        entry.Value(),
+				lastUpdated:  entry.LastUpdated(),
+				creationTime: entry.CreationTime(),
+				expiryTime:   entry.ExpiryTime(),
+				metadata:     entry.Metadata(),
+			})
+			memc.evictPolicy.register(Set, entry.Key())
+			memc.unixTimeBucket.Add(entry.ExpiryTime(), entry.Key())
+		}
+	}
 }
 
 func (memc *MemoryCache) runGarbageCollection(ctx context.Context) {
+	ticker := time.NewTicker(time.Second)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				ticker.Stop()
+				return
 
+			case <-ticker.C:
+				memc.unixTimeBucket.Prune(time.Now().Add(time.Second), func(k, v interface{}) bool {
+					go memc.Delete(k.(string))
+					return true
+				})
+			}
+		}
+	}()
 }
 
 func WithCapacity(cap int64) Option {
