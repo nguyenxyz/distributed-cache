@@ -77,7 +77,7 @@ type (
 
 	// Unix time bucket is used by garbage collector to manage expirable keys
 	UnixTimeBucket struct {
-		m map[int]map[string]struct{}
+		m sync.Map
 	}
 
 	// Operation is used to register an operation with the eviction policy
@@ -92,14 +92,11 @@ const (
 	Purge
 )
 
-var _ Cache = (MemoryCache)(nil)
+var _ Cache = (*MemoryCache)(nil)
 
 type MemoryCache struct {
 	// The underlying kv map
-	kv map[string]Item
-
-	// Mutex for concurrent access
-	kvm sync.RWMutex
+	kvmap sync.Map
 
 	// Optional: Capacity of the cache
 	cap atomic.Int64
@@ -108,7 +105,7 @@ type MemoryCache struct {
 	evictPolicy EvictionPolicy
 
 	// Unix time bucket for expirable keys in the cache
-	utb UnixTimeBucket
+	unixTimeBucket *UnixTimeBucket
 
 	// Callback when a cache entry is evicted
 	onEvict EvictionCallBack
@@ -116,7 +113,8 @@ type MemoryCache struct {
 
 func NewMemoryCache(ctx context.Context, options ...Option) *MemoryCache {
 	cache := &MemoryCache{
-		kv: make(map[string]Item),
+		evictPolicy:    &LRU{},
+		unixTimeBucket: &UnixTimeBucket{},
 	}
 	cache.cap.Store(-1)
 	for _, opt := range options {
@@ -127,83 +125,145 @@ func NewMemoryCache(ctx context.Context, options ...Option) *MemoryCache {
 	return cache
 }
 
-func (mc *MemoryCache) Get(key string) (Entry, bool) {
-	if v, ok := mc.kv.Load(key); ok {
-		mc.evictPolicy.register(Get, key)
+func (memc *MemoryCache) Get(key string) (Entry, bool) {
+	if v, ok := memc.kvmap.Load(key); ok {
+		memc.evictPolicy.register(Get, key)
 		return v.(Item), true
 	}
 
 	return Item{}, false
 }
 
-func (mc *MemoryCache) Set(key string, value []byte, ttl time.Duration) bool {
+func (memc *MemoryCache) Set(key string, value []byte, ttl time.Duration) bool {
+	overwritten := memc.Delete(key)
+	now := time.Now()
+	var expiry time.Time
+	if ttl > 0 {
+		expiry = now.Add(ttl)
+	}
+
+	memc.kvmap.Store(key, Item{
+		key:          key,
+		value:        value,
+		lastUpdated:  now,
+		creationTime: now,
+		expiryTime:   expiry,
+	})
+	memc.evictPolicy.register(Set, key)
+	if !expiry.IsZero() {
+		memc.unixTimeBucket.Add(expiry, key)
+	}
+
+	// start eviction if cache exceeds capacity
+
+	return overwritten
 
 }
 
-func (mc *MemoryCache) Update(key string, value []byte) bool {
+func (memc *MemoryCache) Update(key string, value []byte) bool {
+	if v, ok := memc.kvmap.Load(key); ok {
+		old := v.(Item)
+		memc.kvmap.Store(key, Item{
+			key:          key,
+			value:        value,
+			lastUpdated:  time.Now(),
+			creationTime: old.CreationTime(),
+			expiryTime:   old.ExpiryTime(),
+			metadata:     old.Metadata(),
+		})
+		memc.evictPolicy.register(Update, key)
+		return true
+	}
+
+	return false
+}
+
+func (memc *MemoryCache) Delete(key string) bool {
+	if v, ok := memc.kvmap.LoadAndDelete(key); ok {
+		old := v.(Item)
+		if expiry := old.ExpiryTime(); !expiry.IsZero() {
+			memc.unixTimeBucket.Remove(expiry, key)
+		}
+		memc.evictPolicy.register(Delete, key)
+		return true
+	}
+
+	return false
+}
+
+func (memc *MemoryCache) Purge() {
 
 }
 
-func (mc *MemoryCache) Delete(key string) bool {
+func (memc *MemoryCache) Peek(key string) (Entry, bool) {
 
 }
 
-func (mc *MemoryCache) Purge() {
+func (memc *MemoryCache) Keys() []string {
 
 }
 
-func (mc *MemoryCache) Peek(key string) (Entry, bool) {
+func (memc *MemoryCache) Entries() []Entry {
 
 }
 
-func (mc *MemoryCache) Keys() []string {
+func (memc *MemoryCache) Size() int64 {
 
 }
 
-func (mc *MemoryCache) Entries() []Entry {
-
+func (memc *MemoryCache) Cap() int64 {
+	return memc.cap.Load()
 }
 
-func (mc *MemoryCache) Size() int64 {
-
-}
-
-func (mc *MemoryCache) Cap() int64 {
-	return mc.cap.Load()
-}
-
-func (mc *MemoryCache) Resize(cap int64) {
+func (memc *MemoryCache) Resize(cap int64) {
 	if cap <= 0 {
 		cap = -1
 	}
-	mc.cap.Store(cap)
+	memc.cap.Store(cap)
 }
 
-func (mc *MemoryCache) Recover(entries []Entry) {
+func (memc *MemoryCache) Recover(entries []Entry) {
 
 }
 
-func (mc *MemoryCache) runGarbageCollection(ctx context.Context) {
+func (memc *MemoryCache) runGarbageCollection(ctx context.Context) {
 
 }
 
 func WithCapacity(cap int64) Option {
-	return func(mc *MemoryCache) {
+	return func(memc *MemoryCache) {
 		if cap > 0 {
-			mc.cap.Store(cap)
+			memc.cap.Store(cap)
 		}
 	}
 }
 
 func WithEvictionCallback(cb EvictionCallBack) Option {
-	return func(mc *MemoryCache) {
-		mc.onEvict = cb
+	return func(memc *MemoryCache) {
+		memc.onEvict = cb
 	}
 }
 
 func WithEvictionPolicy(policy EvictionPolicy) Option {
-	return func(mc *MemoryCache) {
-		mc.evictPolicy = policy
+	return func(memc *MemoryCache) {
+		memc.evictPolicy = policy
+	}
+}
+
+func (utb *UnixTimeBucket) Remove(timepoint time.Time, key string) {
+	if expiryMap, ok := utb.m.Load(timepoint.Unix()); ok {
+		expiryMap.(*sync.Map).Delete(key)
+	}
+}
+
+func (utb *UnixTimeBucket) Add(timepoint time.Time, key string) {
+	expiryMap, _ := utb.m.LoadOrStore(timepoint.Unix(), new(sync.Map))
+	expiryMap.(*sync.Map).Store(key, struct{}{})
+}
+
+func (utb *UnixTimeBucket) Prune(timepoint time.Time, callback func(k, v interface{}) bool) {
+	if expiryMap, ok := utb.m.LoadAndDelete(timepoint.Unix()); ok {
+		expiryMap.(*sync.Map).Range(callback)
 	}
 }
 
