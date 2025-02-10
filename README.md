@@ -1,16 +1,6 @@
-## Cluster Infra Design
+## High Level Design
 
-
-![cluster](https://github.com/ph-ngn/nanobox/assets/93941060/e05533af-a200-43fd-b775-79923fcabe3a)
-
-## Tech roadmap:
-- Raft consensus library: https://github.com/hashicorp/raft?tab=readme-ov-file
-- gRPC: https://grpc.io/
-- OpenTelemetry: https://opentelemetry.io/
-- Zap: https://github.com/uber-go/zap
-- Grafana (Loki + Tempo): https://grafana.com/
-- InfluxDB: https://www.influxdata.com/
-- Docker, K8s, Helm, AWS
+![cluster (3)](https://github.com/user-attachments/assets/1fc31bcf-e0de-4877-8242-67db5cc2aa0e)
 
 
 ## Challenges during implementation:
@@ -20,6 +10,14 @@
   + This also comes with some limitations.
     1. Read requests to replicas can return evicted entries due to delay. In any case, reads are eventually consistentent if enabled on replicas
     2. Master won't know about key access statistics of replicas and so it won't be able update its lru accordingly which is very costly anyway
+
+
+## Planning:
+- Implement partitions with consistent hashing, each shard will be managed by its own raft group
+- Implement Kubernetes operator
+- Improve telemetry
+
+
 
 
 ## Demo:
