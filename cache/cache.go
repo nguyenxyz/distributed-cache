@@ -70,7 +70,7 @@ type Entry interface {
 
 type (
 	// EvictionCallBack is used to register a callback when a cache entry is evicted
-	EvictionCallBack func(key string, value []byte)
+	EvictionCallBack func(key string)
 
 	// Option is used to apply configurations to the cache
 	Option func(*MemoryCache)
@@ -98,6 +98,9 @@ type MemoryCache struct {
 	// The underlying kv map
 	kvmap sync.Map
 
+	// The current size of the cache
+	size atomic.Int64
+
 	// Optional: Capacity of the cache
 	cap atomic.Int64
 
@@ -124,7 +127,7 @@ func NewMemoryCache(ctx context.Context, options ...Option) *MemoryCache {
 
 func (memc *MemoryCache) Get(key string) (Entry, bool) {
 	if v, ok := memc.kvmap.Load(key); ok {
-		memc.evictPolicy.register(Get, key)
+		memc.evictPolicy.Register(Get, key)
 		return v.(Item), true
 	}
 
@@ -132,28 +135,43 @@ func (memc *MemoryCache) Get(key string) (Entry, bool) {
 }
 
 func (memc *MemoryCache) Set(key string, value []byte, ttl time.Duration) bool {
-	overwritten := memc.Delete(key)
+	memc.Delete(key)
 	now := time.Now()
 	var expiry time.Time
 	if ttl > 0 {
 		expiry = now.Add(ttl)
 	}
 
-	memc.kvmap.Store(key, Item{
+	_, loaded := memc.kvmap.LoadOrStore(key, Item{
 		key:          key,
 		value:        value,
 		lastUpdated:  now,
 		creationTime: now,
 		expiryTime:   expiry,
 	})
-	memc.evictPolicy.register(Set, key)
-	if !expiry.IsZero() {
-		memc.unixTimeBucket.Add(expiry, key)
+	if !loaded {
+		memc.evictPolicy.Register(Set, key)
+		memc.size.Add(1)
+		if !expiry.IsZero() {
+			memc.unixTimeBucket.Add(expiry, key)
+		}
 	}
 
 	// start eviction if cache exceeds capacity
+	shouldEvict := func() bool {
+		size, cap := memc.Size(), memc.Cap()
+		return cap > 0 && size > cap
+	}
 
-	return overwritten
+	for shouldEvict() {
+		evictKey := memc.evictPolicy.Next()
+		memc.Delete(evictKey)
+		if memc.onEvict != nil {
+			memc.onEvict(evictKey)
+		}
+	}
+
+	return !loaded
 
 }
 
@@ -168,7 +186,7 @@ func (memc *MemoryCache) Update(key string, value []byte) bool {
 			expiryTime:   old.ExpiryTime(),
 			metadata:     old.Metadata(),
 		})
-		memc.evictPolicy.register(Update, key)
+		memc.evictPolicy.Register(Update, key)
 		return true
 	}
 
@@ -181,7 +199,8 @@ func (memc *MemoryCache) Delete(key string) bool {
 		if expiry := old.ExpiryTime(); !expiry.IsZero() {
 			memc.unixTimeBucket.Remove(expiry, key)
 		}
-		memc.evictPolicy.register(Delete, key)
+		memc.evictPolicy.Register(Delete, key)
+		memc.size.Add(-1)
 		return true
 	}
 
@@ -189,10 +208,10 @@ func (memc *MemoryCache) Delete(key string) bool {
 }
 
 func (memc *MemoryCache) Purge() {
-	memc.kvmap.Range(func(k, v interface{}) bool {
-		memc.Delete(k.(string))
-		return true
-	})
+	memc.kvmap.Clear()
+	memc.evictPolicy.Clear()
+	memc.size.Store(0)
+	memc.unixTimeBucket.Clear()
 }
 
 func (memc *MemoryCache) Peek(key string) (Entry, bool) {
@@ -204,15 +223,25 @@ func (memc *MemoryCache) Peek(key string) (Entry, bool) {
 }
 
 func (memc *MemoryCache) Keys() []string {
-
+	keys := make([]string, 0, memc.Size())
+	memc.kvmap.Range(func(k, v interface{}) bool {
+		keys = append(keys, k.(string))
+		return true
+	})
+	return keys
 }
 
 func (memc *MemoryCache) Entries() []Entry {
-
+	entries := make([]Entry, 0, memc.Size())
+	memc.kvmap.Range(func(k, v interface{}) bool {
+		entries = append(entries, v.(Item))
+		return true
+	})
+	return entries
 }
 
 func (memc *MemoryCache) Size() int64 {
-
+	return memc.size.Load()
 }
 
 func (memc *MemoryCache) Cap() int64 {
@@ -238,7 +267,7 @@ func (memc *MemoryCache) Recover(entries []Entry) {
 				expiryTime:   entry.ExpiryTime(),
 				metadata:     entry.Metadata(),
 			})
-			memc.evictPolicy.register(Set, entry.Key())
+			memc.evictPolicy.Register(Set, entry.Key())
 			memc.unixTimeBucket.Add(entry.ExpiryTime(), entry.Key())
 		}
 	}
@@ -298,6 +327,10 @@ func (utb *UnixTimeBucket) Prune(timepoint time.Time, callback func(k, v interfa
 	if expiryMap, ok := utb.m.LoadAndDelete(timepoint.Unix()); ok {
 		expiryMap.(*sync.Map).Range(callback)
 	}
+}
+
+func (utb *UnixTimeBucket) Clear() {
+	utb.m.Clear()
 }
 
 var _ Entry = (*Item)(nil)

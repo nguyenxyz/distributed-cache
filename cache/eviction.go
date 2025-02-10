@@ -1,12 +1,20 @@
 package cache
 
 type EvictionPolicy interface {
-	register(Operation, string)
+	Register(Operation, string)
+	Next() string
+	Clear()
 }
 
 type LRU struct {
 }
 
-func (lru *LRU) register(op Operation, key string) {
+func (lru *LRU) Register(op Operation, key string) {
 
 }
+
+func (lru *LRU) Next() string {
+	return "HAHA"
+}
+
+func (lru *LRU) Clear() {}
