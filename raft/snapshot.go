@@ -1,9 +1,9 @@
-package fsm
+package raft
 
 import (
 	"encoding/json"
 
-	"github.com/hashicorp/raft"
+	hraft "github.com/hashicorp/raft"
 	"github.com/ph-ngn/nanobox/cache"
 )
 
@@ -11,7 +11,7 @@ type Snapshot struct {
 	memory []cache.Entry
 }
 
-func (s *Snapshot) Persist(sink raft.SnapshotSink) error {
+func (s *Snapshot) Persist(sink hraft.SnapshotSink) error {
 	err := func() error {
 		b, err := json.Marshal(s.memory)
 		if err != nil {

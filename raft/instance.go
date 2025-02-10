@@ -1,4 +1,4 @@
-package fsm
+package raft
 
 import (
 	"encoding/json"
@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/hashicorp/raft"
+	hraft "github.com/hashicorp/raft"
 	raftboltdb "github.com/hashicorp/raft-boltdb/v2"
 
 	"github.com/ph-ngn/nanobox/cache"
@@ -37,13 +37,13 @@ type Event struct {
 	Expiry time.Time `json:"expiry,omitempty"`
 }
 
-// FiniteStateMachine is a wrapper around cache and manages replication with Raft consensus
-type FiniteStateMachine struct {
+// RaftInstance is a wrapper around cache and manages replication with Raft consensus
+type RaftInstance struct {
 	cache.Cache
 
 	cap atomic.Int64
 
-	raft *raft.Raft
+	raft *hraft.Raft
 }
 
 type Config struct {
@@ -66,24 +66,24 @@ func (c *Config) validate() error {
 	return nil
 }
 
-func NewFSM(cfg Config) (fsm *FiniteStateMachine, err error) {
+func NewRaftInstance(cfg Config) (ri *RaftInstance, err error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
 
-	raftCfg := raft.DefaultConfig()
-	raftCfg.LocalID = raft.ServerID(cfg.ID)
+	raftCfg := hraft.DefaultConfig()
+	raftCfg.LocalID = hraft.ServerID(cfg.ID)
 
 	clusterAddr, err := net.ResolveTCPAddr("tcp", cfg.FQDN)
 	if err != nil {
 		return
 	}
-	transport, err := raft.NewTCPTransport(cfg.RaftBindAddr, clusterAddr, 4, 15*time.Second, os.Stderr)
+	transport, err := hraft.NewTCPTransport(cfg.RaftBindAddr, clusterAddr, 4, 15*time.Second, os.Stderr)
 	if err != nil {
 		return
 	}
 
-	snapshots, err := raft.NewFileSnapshotStore(cfg.RaftDir, RetainSnapshotCount, os.Stderr)
+	snapshots, err := hraft.NewFileSnapshotStore(cfg.RaftDir, RetainSnapshotCount, os.Stderr)
 	if err != nil {
 		return
 	}
@@ -95,18 +95,18 @@ func NewFSM(cfg Config) (fsm *FiniteStateMachine, err error) {
 		return
 	}
 
-	fsm = &FiniteStateMachine{
+	ri = &RaftInstance{
 		Cache: cfg.Cache,
 	}
 
-	node, err := raft.NewRaft(raftCfg, fsm, boltDB, boltDB, snapshots, transport)
+	node, err := hraft.NewRaft(raftCfg, ri, boltDB, boltDB, snapshots, transport)
 	if err != nil {
 		return
 	}
 
 	if cfg.BootstrapCluster {
-		clusterCfg := raft.Configuration{
-			Servers: []raft.Server{
+		clusterCfg := hraft.Configuration{
+			Servers: []hraft.Server{
 				{
 					ID:      raftCfg.LocalID,
 					Address: transport.LocalAddr(),
@@ -116,24 +116,24 @@ func NewFSM(cfg Config) (fsm *FiniteStateMachine, err error) {
 		node.BootstrapCluster(clusterCfg)
 	}
 
-	fsm.raft = node
+	ri.raft = node
 	return
 }
 
-func (fsm *FiniteStateMachine) DiscoverLeader() (raft.ServerAddress, raft.ServerID) {
-	return fsm.raft.LeaderWithID()
+func (ri *RaftInstance) DiscoverLeader() (hraft.ServerAddress, hraft.ServerID) {
+	return ri.raft.LeaderWithID()
 }
 
-func (fsm *FiniteStateMachine) Cap() int64 {
-	if !fsm.isRaftLeader() {
-		return fsm.cap.Load()
+func (ri *RaftInstance) Cap() int64 {
+	if !ri.isRaftLeader() {
+		return ri.cap.Load()
 	}
 
-	return fsm.Cache.Cap()
+	return ri.Cache.Cap()
 }
 
-func (fsm *FiniteStateMachine) Set(key string, value []byte, ttl time.Duration) (bool, error) {
-	if !fsm.isRaftLeader() {
+func (ri *RaftInstance) Set(key string, value []byte, ttl time.Duration) (bool, error) {
+	if !ri.isRaftLeader() {
 		telemetry.Log().Warnf("Calling Set on follower")
 		return false, ErrNotRaftLeader
 	}
@@ -148,7 +148,7 @@ func (fsm *FiniteStateMachine) Set(key string, value []byte, ttl time.Duration) 
 		event.Expiry = time.Now().Add(ttl)
 	}
 
-	res, err := fsm.replicateAndApplyOnQuorum(event)
+	res, err := ri.replicateAndApplyOnQuorum(event)
 	if err == nil {
 		telemetry.Log().Debugf("Succesfully replicate and apply event: %+v", event)
 		return res.(bool), nil
@@ -157,8 +157,8 @@ func (fsm *FiniteStateMachine) Set(key string, value []byte, ttl time.Duration) 
 	return false, err
 }
 
-func (fsm *FiniteStateMachine) Update(key string, value []byte) (bool, error) {
-	if !fsm.isRaftLeader() {
+func (ri *RaftInstance) Update(key string, value []byte) (bool, error) {
+	if !ri.isRaftLeader() {
 		telemetry.Log().Errorf("Calling Update on follower")
 		return false, ErrNotRaftLeader
 	}
@@ -169,7 +169,7 @@ func (fsm *FiniteStateMachine) Update(key string, value []byte) (bool, error) {
 		Bvalue: value,
 	}
 
-	res, err := fsm.replicateAndApplyOnQuorum(event)
+	res, err := ri.replicateAndApplyOnQuorum(event)
 	if err == nil {
 		telemetry.Log().Debugf("Succesfully replicate and apply event: %+v", event)
 		return res.(bool), nil
@@ -178,8 +178,8 @@ func (fsm *FiniteStateMachine) Update(key string, value []byte) (bool, error) {
 	return false, err
 }
 
-func (fsm *FiniteStateMachine) Delete(key string) (bool, error) {
-	if !fsm.isRaftLeader() {
+func (ri *RaftInstance) Delete(key string) (bool, error) {
+	if !ri.isRaftLeader() {
 		telemetry.Log().Errorf("Calling Delete on follower")
 		return false, ErrNotRaftLeader
 	}
@@ -189,7 +189,7 @@ func (fsm *FiniteStateMachine) Delete(key string) (bool, error) {
 		Key: key,
 	}
 
-	res, err := fsm.replicateAndApplyOnQuorum(event)
+	res, err := ri.replicateAndApplyOnQuorum(event)
 	if err == nil {
 		telemetry.Log().Debugf("Succesfully replicate and apply event: %+v", event)
 		return res.(bool), nil
@@ -198,8 +198,8 @@ func (fsm *FiniteStateMachine) Delete(key string) (bool, error) {
 	return false, err
 }
 
-func (fsm *FiniteStateMachine) Purge() error {
-	if !fsm.isRaftLeader() {
+func (ri *RaftInstance) Purge() error {
+	if !ri.isRaftLeader() {
 		telemetry.Log().Errorf("Calling Purge on follower")
 		return ErrNotRaftLeader
 	}
@@ -208,7 +208,7 @@ func (fsm *FiniteStateMachine) Purge() error {
 		Op: "purge",
 	}
 
-	_, err := fsm.replicateAndApplyOnQuorum(event)
+	_, err := ri.replicateAndApplyOnQuorum(event)
 	if err == nil {
 		telemetry.Log().Debugf("Succesfully replicate and apply event: %+v", event)
 	}
@@ -216,8 +216,8 @@ func (fsm *FiniteStateMachine) Purge() error {
 	return err
 }
 
-func (fsm *FiniteStateMachine) Resize(cap int64) error {
-	if !fsm.isRaftLeader() {
+func (ri *RaftInstance) Resize(cap int64) error {
+	if !ri.isRaftLeader() {
 		telemetry.Log().Errorf("Calling Resize on follower")
 		return ErrNotRaftLeader
 	}
@@ -227,7 +227,7 @@ func (fsm *FiniteStateMachine) Resize(cap int64) error {
 		Ivalue: cap,
 	}
 
-	_, err := fsm.replicateAndApplyOnQuorum(event)
+	_, err := ri.replicateAndApplyOnQuorum(event)
 	if err == nil {
 		telemetry.Log().Debugf("Succesfully replicate and apply event: %+v", event)
 	}
@@ -236,10 +236,10 @@ func (fsm *FiniteStateMachine) Resize(cap int64) error {
 }
 
 // Apply applies an event from the log to the finite state machine and is called once a log entry is committed by a quorum of the cluster
-func (fsm *FiniteStateMachine) Apply(l *raft.Log) interface{} {
+func (ri *RaftInstance) Apply(l *hraft.Log) interface{} {
 	var event Event
 	if err := json.Unmarshal(l.Data, &event); err != nil {
-		// need to exit and recover here so the fsm get a chance to reapply the event
+		// need to exit and recover here so the ri get a chance to reapply the event
 		telemetry.Log().Fatalf("Failed to unmarshal an event from the event log: %v", err)
 	}
 
@@ -254,16 +254,16 @@ func (fsm *FiniteStateMachine) Apply(l *raft.Log) interface{} {
 			ttl = time.Until(event.Expiry)
 		}
 
-		return fsm.Cache.Set(event.Key, event.Bvalue, ttl)
+		return ri.Cache.Set(event.Key, event.Bvalue, ttl)
 
 	case "update":
-		return fsm.Cache.Update(event.Key, event.Bvalue)
+		return ri.Cache.Update(event.Key, event.Bvalue)
 
 	case "delete":
-		return fsm.Cache.Delete(event.Key)
+		return ri.Cache.Delete(event.Key)
 
 	case "purge":
-		fsm.Cache.Purge()
+		ri.Cache.Purge()
 		return nil
 
 	case "resize":
@@ -271,10 +271,10 @@ func (fsm *FiniteStateMachine) Apply(l *raft.Log) interface{} {
 		if cap <= 0 {
 			cap = -1
 		}
-		fsm.cap.Store(cap)
+		ri.cap.Store(cap)
 		// disable eviction on replicas, but still store the current cap to restore when become leader
-		if fsm.isRaftLeader() {
-			fsm.Cache.Resize(cap)
+		if ri.isRaftLeader() {
+			ri.Cache.Resize(cap)
 		}
 
 		return nil
@@ -284,26 +284,26 @@ func (fsm *FiniteStateMachine) Apply(l *raft.Log) interface{} {
 	}
 }
 
-func (fsm *FiniteStateMachine) Join(addr, nodeID string) error {
+func (ri *RaftInstance) Join(addr, nodeID string) error {
 	telemetry.Log().Infof("Received join request from node %s at %s", nodeID, addr)
-	if !fsm.isRaftLeader() {
+	if !ri.isRaftLeader() {
 		telemetry.Log().Errorf("Calling Join on follower")
 		return ErrNotRaftLeader
 	}
-	configFuture := fsm.raft.GetConfiguration()
+	configFuture := ri.raft.GetConfiguration()
 	if err := configFuture.Error(); err != nil {
 		telemetry.Log().Errorf("Failed to get raft configuration: %v", err)
 		return err
 	}
 
 	for _, srv := range configFuture.Configuration().Servers {
-		if srv.ID == raft.ServerID(nodeID) || srv.Address == raft.ServerAddress(addr) {
-			if srv.ID == raft.ServerID(nodeID) && srv.Address == raft.ServerAddress(addr) {
+		if srv.ID == hraft.ServerID(nodeID) || srv.Address == hraft.ServerAddress(addr) {
+			if srv.ID == hraft.ServerID(nodeID) && srv.Address == hraft.ServerAddress(addr) {
 				telemetry.Log().Infof("node %s at %s is already a member", nodeID, addr)
 				return nil
 			}
 
-			future := fsm.raft.RemoveServer(srv.ID, 0, ConfigChangeTimeOut)
+			future := ri.raft.RemoveServer(srv.ID, 0, ConfigChangeTimeOut)
 			if err := future.Error(); err != nil {
 				telemetry.Log().Errorf("Failed to remove existing node %s at %s: %v", nodeID, addr, err)
 				return err
@@ -311,7 +311,7 @@ func (fsm *FiniteStateMachine) Join(addr, nodeID string) error {
 		}
 	}
 
-	future := fsm.raft.AddVoter(raft.ServerID(nodeID), raft.ServerAddress(addr), 0, ConfigChangeTimeOut)
+	future := ri.raft.AddVoter(hraft.ServerID(nodeID), hraft.ServerAddress(addr), 0, ConfigChangeTimeOut)
 	if err := future.Error(); err != nil {
 		telemetry.Log().Errorf("Failed to join node %s at %s: %v", nodeID, addr, err)
 		return err
@@ -321,28 +321,28 @@ func (fsm *FiniteStateMachine) Join(addr, nodeID string) error {
 	return nil
 }
 
-func (fsm *FiniteStateMachine) Snapshot() (raft.FSMSnapshot, error) {
-	return &Snapshot{memory: fsm.Entries()}, nil
+func (ri *RaftInstance) Snapshot() (hraft.FSMSnapshot, error) {
+	return &Snapshot{memory: ri.Entries()}, nil
 }
 
-func (fsm *FiniteStateMachine) Restore(rc io.ReadCloser) error {
+func (ri *RaftInstance) Restore(rc io.ReadCloser) error {
 	snapshot := make([]cache.Entry, 0)
 	if err := json.NewDecoder(rc).Decode(&snapshot); err != nil {
 		return err
 	}
 
-	fsm.Cache.Recover(snapshot)
+	ri.Cache.Recover(snapshot)
 	return nil
 }
 
-// replicateAndApplyOnQuorum replicates an event to followers and applies the event to the fsm if it is commited by a quorum of the cluster
-func (fsm *FiniteStateMachine) replicateAndApplyOnQuorum(event Event) (interface{}, error) {
+// replicateAndApplyOnQuorum replicates an event to followers and applies the event to the ri if it is commited by a quorum of the cluster
+func (ri *RaftInstance) replicateAndApplyOnQuorum(event Event) (interface{}, error) {
 	b, err := json.Marshal(event)
 	if err != nil {
 		return nil, err
 	}
 
-	future := fsm.raft.Apply(b, RaftTimeOut)
+	future := ri.raft.Apply(b, RaftTimeOut)
 	if err := future.Error(); err != nil {
 		telemetry.Log().Errorf("Encountered an error during Raft operation: %v", err)
 		return nil, err
@@ -351,6 +351,6 @@ func (fsm *FiniteStateMachine) replicateAndApplyOnQuorum(event Event) (interface
 	return future.Response(), nil
 }
 
-func (fsm *FiniteStateMachine) isRaftLeader() bool {
-	return fsm.raft.State() == raft.Leader
+func (ri *RaftInstance) isRaftLeader() bool {
+	return ri.raft.State() == hraft.Leader
 }

@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-func TestLRUSetGet(t *testing.T) {
+func TestCacheSetGet(t *testing.T) {
 	testCases := []struct {
 		desc, key   string
 		value       interface{}
@@ -61,7 +61,7 @@ func TestLRUSetGet(t *testing.T) {
 		},
 	}
 
-	lru := NewLRU(context.Background())
+	lru := NewMemoryCache(context.Background())
 	for _, tc := range testCases {
 		tc := tc
 		t.Run(tc.desc, func(t *testing.T) {
