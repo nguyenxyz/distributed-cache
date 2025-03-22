@@ -5,6 +5,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"google.golang.org/grpc"
@@ -41,8 +43,6 @@ func init() {
 		fqdn = fmt.Sprintf("%s.%s.%s.svc.cluster.local:4000", podName, serviceName, namespace)
 	}
 
-	fmt.Println(fqdn)
-
 	flag.StringVar(&ID, "id", ordinal, "Raft node ID")
 	flag.StringVar(&FQDN, "fqdn", fqdn, "Raft cluster address")
 	flag.BoolVar(&BootstrapCluster, "bootstrap", ordinal == "0", "Bootstrap cluster flag")
@@ -54,17 +54,15 @@ func main() {
 	defer cancel()
 
 	flag.Parse()
-
 	telemetry.Init(ctx, FQDN, ID, fmt.Sprintf("%s.log", FQDN))
-
 	var raftInstance *raft.Instance
 	// sync evictions to replicas
-	evictCB := func(key string) {
+	onEvict := func(key string) {
 		telemetry.Log().Infof("Syncing eviction of key %s from master", key)
 		go raftInstance.Delete(key)
 	}
 
-	lru := cache.NewMemoryCache(ctx, cache.WithCapacity(Capacity), cache.WithEvictionCallback(evictCB), cache.WithEvictionPolicy(&cache.LRU{}))
+	lru := cache.NewMemoryCache(ctx, cache.WithCapacity(Capacity), cache.WithEvictionCallback(onEvict), cache.WithEvictionPolicy(&cache.LRU{}))
 	raftInstance, err := raft.NewInstance(raft.Config{
 		Cache:            lru,
 		RaftBindAddr:     RaftBindAddr,
@@ -88,10 +86,25 @@ func main() {
 		MaxConnectionAge:      30 * time.Second,
 		MaxConnectionAgeGrace: 10 * time.Second,
 	})))
-	if err := apiServer.ListenAndServe(grpcAddr); err != nil {
-		panic(err.Error())
+
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
+	serverErrChan := make(chan error, 1)
+	go func() {
+		if err := apiServer.ListenAndServe(grpcAddr); err != nil {
+			serverErrChan <- err
+		}
+	}()
+
+	select {
+	case sig := <-signalChan:
+		telemetry.Log().Infof("Received signal: %v, initiating graceful shutdown", sig)
+	case err := <-serverErrChan:
+		telemetry.Log().Errorf("API Server error: %v", err)
 	}
 
+	apiServer.GracefulStop()
+	telemetry.Log().Infof("API Server shutdown complete")
 }
 
 func join(ctx context.Context, leaderAddr, FQDN, ID string) error {
