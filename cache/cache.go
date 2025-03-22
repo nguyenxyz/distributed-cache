@@ -209,7 +209,7 @@ func (memc *MemoryCache) Delete(key string) bool {
 
 func (memc *MemoryCache) Purge() {
 	memc.kvmap.Clear()
-	memc.evictPolicy.Clear()
+	memc.evictPolicy.Reset()
 	memc.size.Store(0)
 	memc.unixTimeBucket.Clear()
 }

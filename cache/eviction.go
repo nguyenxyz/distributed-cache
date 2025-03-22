@@ -3,7 +3,7 @@ package cache
 type EvictionPolicy interface {
 	Register(Operation, string)
 	Next() string
-	Clear()
+	Reset()
 }
 
 type LRU struct {
@@ -17,4 +17,12 @@ func (lru *LRU) Next() string {
 	return "HAHA"
 }
 
-func (lru *LRU) Clear() {}
+func (lru *LRU) Reset() {}
+
+type LFU struct{}
+
+func (lfu *LFU) Register(op Operation, key string) {}
+
+func (lfu *LFU) Next() string { return "HAHA" }
+
+func (lfu *LFU) Reset() {}
