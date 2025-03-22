@@ -7,13 +7,14 @@ import (
 	"os"
 	"time"
 
-	"github.com/ph-ngn/nanobox/cache"
-	"github.com/ph-ngn/nanobox/fsm"
-	"github.com/ph-ngn/nanobox/nbox"
-	"github.com/ph-ngn/nanobox/telemetry"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
+
+	"github.com/phonghmnguyen/ke0/apiserver"
+	"github.com/phonghmnguyen/ke0/cache"
+	"github.com/phonghmnguyen/ke0/raft"
+	"github.com/phonghmnguyen/ke0/telemetry"
 )
 
 var (
@@ -56,15 +57,15 @@ func main() {
 
 	telemetry.Init(ctx, FQDN, ID, fmt.Sprintf("%s.log", FQDN))
 
-	var sm *fsm.FiniteStateMachine
+	var raftInstance *raft.Instance
 	// sync evictions to replicas
-	cb := func(key string, value []byte) {
+	evictCB := func(key string) {
 		telemetry.Log().Infof("Syncing eviction of key %s from master", key)
-		go sm.Delete(key)
+		go raftInstance.Delete(key)
 	}
 
-	lru := cache.NewLRU(ctx, cache.WithCapacity(Capacity), cache.WithEvictionCallback(cb))
-	sm, err := fsm.NewFSM(fsm.Config{
+	lru := cache.NewMemoryCache(ctx, cache.WithCapacity(Capacity), cache.WithEvictionCallback(evictCB), cache.WithEvictionPolicy(&cache.LRU{}))
+	raftInstance, err := raft.NewInstance(raft.Config{
 		Cache:            lru,
 		RaftBindAddr:     RaftBindAddr,
 		RaftDir:          RaftDir,
@@ -76,8 +77,6 @@ func main() {
 	if err != nil {
 		panic(err.Error())
 	}
-
-	fmt.Println(BootstrapCluster)
 	if !BootstrapCluster {
 		//"nanobox-0.nanobox.default.svc.cluster.local:8000"
 		if err := join(ctx, "nanobox-0.nanobox.default.svc.cluster.local:8000", FQDN, ID); err != nil {
@@ -85,11 +84,11 @@ func main() {
 		}
 	}
 
-	nbox := nbox.NewNanoboxServer(ctx, sm, grpc.NewServer(grpc.KeepaliveParams(keepalive.ServerParameters{
+	apiServer := apiserver.NewServer(ctx, raftInstance, grpc.NewServer(grpc.KeepaliveParams(keepalive.ServerParameters{
 		MaxConnectionAge:      30 * time.Second,
 		MaxConnectionAgeGrace: 10 * time.Second,
 	})))
-	if err := nbox.ListenAndServe(grpcAddr); err != nil {
+	if err := apiServer.ListenAndServe(grpcAddr); err != nil {
 		panic(err.Error())
 	}
 
@@ -102,7 +101,7 @@ func join(ctx context.Context, leaderAddr, FQDN, ID string) error {
 	}
 	defer conn.Close()
 
-	_, err = nbox.NewNanoboxClient(conn).Join(ctx, &nbox.JoinRequest{
+	_, err = apiserver.NewKe0APIClient(conn).Join(ctx, &apiserver.JoinRequest{
 		FQDN: FQDN,
 		ID:   ID,
 	})
