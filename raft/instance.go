@@ -13,8 +13,8 @@ import (
 	hraft "github.com/hashicorp/raft"
 	raftboltdb "github.com/hashicorp/raft-boltdb/v2"
 
-	"github.com/ph-ngn/nanobox/cache"
-	"github.com/ph-ngn/nanobox/telemetry"
+	"github.com/phonghmnguyen/ke0/cache"
+	"github.com/phonghmnguyen/ke0/telemetry"
 )
 
 const (
@@ -37,8 +37,8 @@ type Event struct {
 	Expiry time.Time `json:"expiry,omitempty"`
 }
 
-// RaftInstance is a wrapper around cache and manages replication with Raft consensus
-type RaftInstance struct {
+// Instance is a wrapper around cache and manages replication with Raft consensus
+type Instance struct {
 	cache.Cache
 
 	cap atomic.Int64
@@ -66,7 +66,7 @@ func (c *Config) validate() error {
 	return nil
 }
 
-func NewRaftInstance(cfg Config) (ri *RaftInstance, err error) {
+func NewInstance(cfg Config) (ri *Instance, err error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
@@ -95,7 +95,7 @@ func NewRaftInstance(cfg Config) (ri *RaftInstance, err error) {
 		return
 	}
 
-	ri = &RaftInstance{
+	ri = &Instance{
 		Cache: cfg.Cache,
 	}
 
@@ -120,11 +120,11 @@ func NewRaftInstance(cfg Config) (ri *RaftInstance, err error) {
 	return
 }
 
-func (ri *RaftInstance) DiscoverLeader() (hraft.ServerAddress, hraft.ServerID) {
+func (ri *Instance) DiscoverLeader() (hraft.ServerAddress, hraft.ServerID) {
 	return ri.raft.LeaderWithID()
 }
 
-func (ri *RaftInstance) Cap() int64 {
+func (ri *Instance) Cap() int64 {
 	if !ri.isRaftLeader() {
 		return ri.cap.Load()
 	}
@@ -132,7 +132,7 @@ func (ri *RaftInstance) Cap() int64 {
 	return ri.Cache.Cap()
 }
 
-func (ri *RaftInstance) Set(key string, value []byte, ttl time.Duration) (bool, error) {
+func (ri *Instance) Set(key string, value []byte, ttl time.Duration) (bool, error) {
 	if !ri.isRaftLeader() {
 		telemetry.Log().Warnf("Calling Set on follower")
 		return false, ErrNotRaftLeader
@@ -157,7 +157,7 @@ func (ri *RaftInstance) Set(key string, value []byte, ttl time.Duration) (bool, 
 	return false, err
 }
 
-func (ri *RaftInstance) Update(key string, value []byte) (bool, error) {
+func (ri *Instance) Update(key string, value []byte) (bool, error) {
 	if !ri.isRaftLeader() {
 		telemetry.Log().Errorf("Calling Update on follower")
 		return false, ErrNotRaftLeader
@@ -178,7 +178,7 @@ func (ri *RaftInstance) Update(key string, value []byte) (bool, error) {
 	return false, err
 }
 
-func (ri *RaftInstance) Delete(key string) (bool, error) {
+func (ri *Instance) Delete(key string) (bool, error) {
 	if !ri.isRaftLeader() {
 		telemetry.Log().Errorf("Calling Delete on follower")
 		return false, ErrNotRaftLeader
@@ -198,7 +198,7 @@ func (ri *RaftInstance) Delete(key string) (bool, error) {
 	return false, err
 }
 
-func (ri *RaftInstance) Purge() error {
+func (ri *Instance) Purge() error {
 	if !ri.isRaftLeader() {
 		telemetry.Log().Errorf("Calling Purge on follower")
 		return ErrNotRaftLeader
@@ -216,7 +216,7 @@ func (ri *RaftInstance) Purge() error {
 	return err
 }
 
-func (ri *RaftInstance) Resize(cap int64) error {
+func (ri *Instance) Resize(cap int64) error {
 	if !ri.isRaftLeader() {
 		telemetry.Log().Errorf("Calling Resize on follower")
 		return ErrNotRaftLeader
@@ -236,7 +236,7 @@ func (ri *RaftInstance) Resize(cap int64) error {
 }
 
 // Apply applies an event from the log to the finite state machine and is called once a log entry is committed by a quorum of the cluster
-func (ri *RaftInstance) Apply(l *hraft.Log) interface{} {
+func (ri *Instance) Apply(l *hraft.Log) interface{} {
 	var event Event
 	if err := json.Unmarshal(l.Data, &event); err != nil {
 		// need to exit and recover here so the ri get a chance to reapply the event
@@ -284,7 +284,7 @@ func (ri *RaftInstance) Apply(l *hraft.Log) interface{} {
 	}
 }
 
-func (ri *RaftInstance) Join(addr, nodeID string) error {
+func (ri *Instance) Join(addr, nodeID string) error {
 	telemetry.Log().Infof("Received join request from node %s at %s", nodeID, addr)
 	if !ri.isRaftLeader() {
 		telemetry.Log().Errorf("Calling Join on follower")
@@ -321,11 +321,11 @@ func (ri *RaftInstance) Join(addr, nodeID string) error {
 	return nil
 }
 
-func (ri *RaftInstance) Snapshot() (hraft.FSMSnapshot, error) {
+func (ri *Instance) Snapshot() (hraft.FSMSnapshot, error) {
 	return &Snapshot{memory: ri.Entries()}, nil
 }
 
-func (ri *RaftInstance) Restore(rc io.ReadCloser) error {
+func (ri *Instance) Restore(rc io.ReadCloser) error {
 	snapshot := make([]cache.Entry, 0)
 	if err := json.NewDecoder(rc).Decode(&snapshot); err != nil {
 		return err
@@ -336,7 +336,7 @@ func (ri *RaftInstance) Restore(rc io.ReadCloser) error {
 }
 
 // replicateAndApplyOnQuorum replicates an event to followers and applies the event to the ri if it is commited by a quorum of the cluster
-func (ri *RaftInstance) replicateAndApplyOnQuorum(event Event) (interface{}, error) {
+func (ri *Instance) replicateAndApplyOnQuorum(event Event) (interface{}, error) {
 	b, err := json.Marshal(event)
 	if err != nil {
 		return nil, err
@@ -351,6 +351,6 @@ func (ri *RaftInstance) replicateAndApplyOnQuorum(event Event) (interface{}, err
 	return future.Response(), nil
 }
 
-func (ri *RaftInstance) isRaftLeader() bool {
+func (ri *Instance) isRaftLeader() bool {
 	return ri.raft.State() == hraft.Leader
 }

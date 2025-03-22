@@ -1,4 +1,4 @@
-module github.com/ph-ngn/nanobox
+module github.com/phonghmnguyen/ke0
 
 go 1.23
 

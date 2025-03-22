@@ -23,4 +23,8 @@ go.work
 raftdir*
 service.box.log
 
+# Generated protobuf files
+*.pb.go
+*_grpc.pb.go
+
 *dockerfile

@@ -1,4 +1,4 @@
-package nbox
+package apiserver
 
 import (
 	"context"
@@ -8,36 +8,37 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ph-ngn/nanobox/fsm"
-	"github.com/ph-ngn/nanobox/telemetry"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	"github.com/phonghmnguyen/ke0/raft"
+	"github.com/phonghmnguyen/ke0/telemetry"
 )
 
-var _ NanoboxServer = (*nanoboxServer)(nil)
+var _ Ke0APIServer = (*server)(nil)
 
-type nanoboxServer struct {
-	UnimplementedNanoboxServer
+type server struct {
+	UnimplementedKe0APIServer
 
-	fsm *fsm.FiniteStateMachine
+	fsm *raft.Instance
 
 	grpc *grpc.Server
 }
 
-func NewNanoboxServer(ctx context.Context, fsm *fsm.FiniteStateMachine, grpc *grpc.Server) *nanoboxServer {
-	return &nanoboxServer{
+func NewServer(ctx context.Context, fsm *raft.Instance, grpc *grpc.Server) *server {
+	return &server{
 		fsm:  fsm,
 		grpc: grpc,
 	}
 }
 
-func (s *nanoboxServer) ListenAndServe(addr string) error {
+func (s *server) ListenAndServe(addr string) error {
 	telemetry.Log().Infof("Starting Nanobox on %s", addr)
-	RegisterNanoboxServer(s.grpc, s)
+	RegisterKe0APIServer(s.grpc, s)
 	lis, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
@@ -46,7 +47,7 @@ func (s *nanoboxServer) ListenAndServe(addr string) error {
 	return s.grpc.Serve(lis)
 }
 
-func (s *nanoboxServer) DiscoverMaster(ctx context.Context, request *DiscoverMasterRequest) (*DiscoverMasterResponse, error) {
+func (s *server) DiscoverMaster(ctx context.Context, request *DiscoverMasterRequest) (*DiscoverMasterResponse, error) {
 	fqdn, id := s.fsm.DiscoverLeader()
 	redirect := func(addr string) string {
 		parts := strings.Split(addr, ":")
@@ -60,7 +61,7 @@ func (s *nanoboxServer) DiscoverMaster(ctx context.Context, request *DiscoverMas
 	}, nil
 }
 
-func (s *nanoboxServer) Get(ctx context.Context, request *GetOrPeakRequest) (*GetOrPeakResponse, error) {
+func (s *server) Get(ctx context.Context, request *GetOrPeakRequest) (*GetOrPeakResponse, error) {
 	peer, _ := peer.FromContext(ctx)
 	telemetry.Log().Infof("[GET] key: %s, from: %s", request.GetKey(), peer.Addr.String())
 
@@ -80,7 +81,7 @@ func (s *nanoboxServer) Get(ctx context.Context, request *GetOrPeakRequest) (*Ge
 	return response, nil
 }
 
-func (s *nanoboxServer) Peek(ctx context.Context, request *GetOrPeakRequest) (*GetOrPeakResponse, error) {
+func (s *server) Peek(ctx context.Context, request *GetOrPeakRequest) (*GetOrPeakResponse, error) {
 	peer, _ := peer.FromContext(ctx)
 	telemetry.Log().Infof("[PEEK] key: %s, from: %s", request.GetKey(), peer.Addr.String())
 
@@ -100,7 +101,7 @@ func (s *nanoboxServer) Peek(ctx context.Context, request *GetOrPeakRequest) (*G
 	return response, nil
 }
 
-func (s *nanoboxServer) Set(ctx context.Context, request *SetOrUpdateRequest) (*SetOrUpdateResponse, error) {
+func (s *server) Set(ctx context.Context, request *SetOrUpdateRequest) (*SetOrUpdateResponse, error) {
 	span := trace.SpanFromContext(ctx)
 	peer, _ := peer.FromContext(ctx)
 
@@ -110,7 +111,7 @@ func (s *nanoboxServer) Set(ctx context.Context, request *SetOrUpdateRequest) (*
 	response := &SetOrUpdateResponse{Flag: flag}
 	if err != nil {
 		switch {
-		case errors.Is(err, fsm.ErrNotRaftLeader):
+		case errors.Is(err, raft.ErrNotRaftLeader):
 			response.ErrorCode = ErrorCode_NOTMASTER
 
 		default:
@@ -127,7 +128,7 @@ func (s *nanoboxServer) Set(ctx context.Context, request *SetOrUpdateRequest) (*
 	return response, err
 }
 
-func (s *nanoboxServer) Update(ctx context.Context, request *SetOrUpdateRequest) (*SetOrUpdateResponse, error) {
+func (s *server) Update(ctx context.Context, request *SetOrUpdateRequest) (*SetOrUpdateResponse, error) {
 	span := trace.SpanFromContext(ctx)
 	peer, _ := peer.FromContext(ctx)
 
@@ -137,7 +138,7 @@ func (s *nanoboxServer) Update(ctx context.Context, request *SetOrUpdateRequest)
 	response := &SetOrUpdateResponse{Flag: flag}
 	if err != nil {
 		switch {
-		case errors.Is(err, fsm.ErrNotRaftLeader):
+		case errors.Is(err, raft.ErrNotRaftLeader):
 			response.ErrorCode = ErrorCode_NOTMASTER
 
 		default:
@@ -154,7 +155,7 @@ func (s *nanoboxServer) Update(ctx context.Context, request *SetOrUpdateRequest)
 	return response, err
 }
 
-func (s *nanoboxServer) Delete(ctx context.Context, request *DeleteOrPurgeRequest) (*DeleteOrPurgeResponse, error) {
+func (s *server) Delete(ctx context.Context, request *DeleteOrPurgeRequest) (*DeleteOrPurgeResponse, error) {
 	span := trace.SpanFromContext(ctx)
 	peer, _ := peer.FromContext(ctx)
 
@@ -164,7 +165,7 @@ func (s *nanoboxServer) Delete(ctx context.Context, request *DeleteOrPurgeReques
 	response := &DeleteOrPurgeResponse{Flag: flag}
 	if err != nil {
 		switch {
-		case errors.Is(err, fsm.ErrNotRaftLeader):
+		case errors.Is(err, raft.ErrNotRaftLeader):
 			response.ErrorCode = ErrorCode_NOTMASTER
 
 		default:
@@ -181,7 +182,7 @@ func (s *nanoboxServer) Delete(ctx context.Context, request *DeleteOrPurgeReques
 	return response, err
 }
 
-func (s *nanoboxServer) Purge(ctx context.Context, request *DeleteOrPurgeRequest) (*DeleteOrPurgeResponse, error) {
+func (s *server) Purge(ctx context.Context, request *DeleteOrPurgeRequest) (*DeleteOrPurgeResponse, error) {
 	span := trace.SpanFromContext(ctx)
 	peer, _ := peer.FromContext(ctx)
 
@@ -190,7 +191,7 @@ func (s *nanoboxServer) Purge(ctx context.Context, request *DeleteOrPurgeRequest
 	err := s.fsm.Purge()
 	if err != nil {
 		switch {
-		case errors.Is(err, fsm.ErrNotRaftLeader):
+		case errors.Is(err, raft.ErrNotRaftLeader):
 			response.ErrorCode = ErrorCode_NOTMASTER
 
 		default:
@@ -206,14 +207,14 @@ func (s *nanoboxServer) Purge(ctx context.Context, request *DeleteOrPurgeRequest
 	return response, err
 }
 
-func (s *nanoboxServer) Keys(ctx context.Context, request *KeysRequest) (*KeysResponse, error) {
+func (s *server) Keys(ctx context.Context, request *KeysRequest) (*KeysResponse, error) {
 	peer, _ := peer.FromContext(ctx)
 	telemetry.Log().Infof("[KEYS] from: %s", peer.Addr.String())
 
 	return &KeysResponse{Keys: s.fsm.Keys()}, nil
 }
 
-func (s *nanoboxServer) Entries(ctx context.Context, request *EntriesRequest) (*EntriesResponse, error) {
+func (s *server) Entries(ctx context.Context, request *EntriesRequest) (*EntriesResponse, error) {
 	peer, _ := peer.FromContext(ctx)
 	telemetry.Log().Infof("[ENTRIES] from: %s", peer.Addr.String())
 
@@ -233,21 +234,21 @@ func (s *nanoboxServer) Entries(ctx context.Context, request *EntriesRequest) (*
 	return &EntriesResponse{Entries: es}, nil
 }
 
-func (s *nanoboxServer) Size(ctx context.Context, request *SizeOrCapRequest) (*SizeOrCapResponse, error) {
+func (s *server) Size(ctx context.Context, request *SizeOrCapRequest) (*SizeOrCapResponse, error) {
 	peer, _ := peer.FromContext(ctx)
 	telemetry.Log().Infof("[SIZE] from: %s", peer.Addr.String())
 
 	return &SizeOrCapResponse{Size: int64(s.fsm.Size())}, nil
 }
 
-func (s *nanoboxServer) Cap(ctx context.Context, request *SizeOrCapRequest) (*SizeOrCapResponse, error) {
+func (s *server) Cap(ctx context.Context, request *SizeOrCapRequest) (*SizeOrCapResponse, error) {
 	peer, _ := peer.FromContext(ctx)
 	telemetry.Log().Infof("[CAP] from: %s", peer.Addr.String())
 
 	return &SizeOrCapResponse{Size: int64(s.fsm.Cap())}, nil
 }
 
-func (s *nanoboxServer) Resize(ctx context.Context, request *ResizeRequest) (*ResizeResponse, error) {
+func (s *server) Resize(ctx context.Context, request *ResizeRequest) (*ResizeResponse, error) {
 	span := trace.SpanFromContext(ctx)
 	peer, _ := peer.FromContext(ctx)
 
@@ -257,7 +258,7 @@ func (s *nanoboxServer) Resize(ctx context.Context, request *ResizeRequest) (*Re
 	response := &ResizeResponse{}
 	if err != nil {
 		switch {
-		case errors.Is(err, fsm.ErrNotRaftLeader):
+		case errors.Is(err, raft.ErrNotRaftLeader):
 			response.ErrorCode = ErrorCode_NOTMASTER
 
 		default:
@@ -274,7 +275,7 @@ func (s *nanoboxServer) Resize(ctx context.Context, request *ResizeRequest) (*Re
 	return response, err
 }
 
-func (s *nanoboxServer) Join(ctx context.Context, request *JoinRequest) (*JoinResponse, error) {
+func (s *server) Join(ctx context.Context, request *JoinRequest) (*JoinResponse, error) {
 	span := trace.SpanFromContext(ctx)
 	peer, _ := peer.FromContext(ctx)
 
@@ -287,7 +288,7 @@ func (s *nanoboxServer) Join(ctx context.Context, request *JoinRequest) (*JoinRe
 	response := &JoinResponse{}
 	if err != nil {
 		switch {
-		case errors.Is(err, fsm.ErrNotRaftLeader):
+		case errors.Is(err, raft.ErrNotRaftLeader):
 			response.ErrorCode = ErrorCode_NOTMASTER
 
 		default:

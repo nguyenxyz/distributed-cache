@@ -1,14 +1,14 @@
 syntax = "proto3";
-package nbox;
+package apiserver;
 
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/struct.proto";
 import "google/protobuf/duration.proto";
 
-option go_package = "github.com/ph-ngn/nanobox/nbox";
+option go_package = "github.com/phonghmnguyen/ke0/apiserver";
 
 
-service Nanobox {
+service Ke0API {
     // DiscoverMaster returns the info of the current master
     rpc DiscoverMaster(DiscoverMasterRequest) returns (DiscoverMasterResponse) {}
 
