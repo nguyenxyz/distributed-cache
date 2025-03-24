@@ -14,8 +14,7 @@
 
 
 ## Planning:
-- Implement partitions with consistent hashing, each shard will be managed by its own raft group
-- Implement Kubernetes operator
+- Implement Kubernetes operator to manage cluster and facilitate rebalancing
 - Implement B-tree index for range querying
 - Implement watch API for subscribing to changes
 - Improve telemetry
