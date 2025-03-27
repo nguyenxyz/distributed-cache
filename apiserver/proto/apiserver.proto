@@ -1,11 +1,11 @@
 syntax = "proto3";
-package apiserver;
+package ke0.apiserver;
 
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/struct.proto";
 import "google/protobuf/duration.proto";
 
-option go_package = "github.com/phonghmnguyen/ke0/apiserver";
+option go_package = "github.com/phonghmnguyen/ke0/apiserver/proto";
 
 
 service Ke0API {
@@ -34,7 +34,7 @@ service Ke0API {
 
     rpc Resize(ResizeRequest) returns (ResizeResponse) {}
 
-    rpc Join(JoinRequest) returns (JoinResponse) {}    
+    rpc Join(JoinRequest) returns (JoinResponse) {}
 }
 
 message Entry {

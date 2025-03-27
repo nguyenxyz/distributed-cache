@@ -14,6 +14,7 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/phonghmnguyen/ke0/apiserver"
+	"github.com/phonghmnguyen/ke0/apiserver/proto"
 	"github.com/phonghmnguyen/ke0/cache"
 	"github.com/phonghmnguyen/ke0/raft"
 	"github.com/phonghmnguyen/ke0/telemetry"
@@ -114,7 +115,7 @@ func join(ctx context.Context, leaderAddr, FQDN, ID string) error {
 	}
 	defer conn.Close()
 
-	_, err = apiserver.NewKe0APIClient(conn).Join(ctx, &apiserver.JoinRequest{
+	_, err = proto.NewKe0APIClient(conn).Join(ctx, &apiserver.JoinRequest{
 		FQDN: FQDN,
 		ID:   ID,
 	})
