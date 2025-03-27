@@ -122,7 +122,7 @@ func TestLRUGarbageCollection(t *testing.T) {
 		},
 	}
 
-	lru := NewLRU(context.Background())
+	lru := NewMemoryCache(context.Background(), WithEvictionPolicy(&LRU{}))
 	for _, tc := range testCases {
 		tc := tc
 		t.Run(tc.desc, func(t *testing.T) {
@@ -138,7 +138,7 @@ func TestLRUGarbageCollection(t *testing.T) {
 }
 
 func TestLRUSameKeyConcurrentWrite(t *testing.T) {
-	lru := NewLRU(context.Background())
+	lru := NewMemoryCache(context.Background(), WithEvictionPolicy(&LRU{}))
 	var wg sync.WaitGroup
 
 	numKeys := 2
@@ -167,7 +167,7 @@ func TestLRUSameKeyConcurrentWrite(t *testing.T) {
 func TestLRUEviction(t *testing.T) {
 	cap := 10000
 	overflowf := 50
-	lru := NewLRU(context.Background(), WithCapacity(int64(cap)))
+	lru := NewMemoryCache(context.Background(), WithCapacity(int64(cap)), WithEvictionPolicy(&LRU{}))
 	var wg sync.WaitGroup
 
 	for i := 0; i < cap*overflowf; i++ {
@@ -192,7 +192,7 @@ func TestLRUEviction(t *testing.T) {
 }
 
 func BenchmarkLRUHitMiss_Random(b *testing.B) {
-	lru := NewLRU(context.Background(), WithCapacity(8192))
+	lru := NewMemoryCache(context.Background(), WithCapacity(8192), WithEvictionPolicy(&LRU{}))
 	trace := make([]string, b.N)
 	for i := 0; i < len(trace); i++ {
 		trace[i] = randKeyFromInt64(b, 32768)
@@ -217,7 +217,7 @@ func BenchmarkLRUHitMiss_Random(b *testing.B) {
 }
 
 func BenchmarkLRUHistMiss_Frequency(b *testing.B) {
-	lru := NewLRU(context.Background(), WithCapacity(8192))
+	lru := NewMemoryCache(context.Background(), WithCapacity(8192), WithEvictionPolicy(&LRU{}))
 	trace := make([]string, b.N)
 	for i := 0; i < len(trace); i++ {
 		if i%2 == 0 {

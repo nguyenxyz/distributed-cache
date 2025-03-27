@@ -115,7 +115,7 @@ func join(ctx context.Context, leaderAddr, FQDN, ID string) error {
 	}
 	defer conn.Close()
 
-	_, err = proto.NewKe0APIClient(conn).Join(ctx, &apiserver.JoinRequest{
+	_, err = proto.NewKe0APIClient(conn).Join(ctx, &proto.JoinRequest{
 		FQDN: FQDN,
 		ID:   ID,
 	})
