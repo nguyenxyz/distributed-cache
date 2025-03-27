@@ -28,3 +28,4 @@ service.box.log
 *_grpc.pb.go
 
 *dockerfile
+.idea/
