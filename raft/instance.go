@@ -66,7 +66,7 @@ func (c *Config) validate() error {
 	return nil
 }
 
-func NewInstance(cfg Config) (ri *Instance, err error) {
+func NewInstance(cfg Config) (inst *Instance, err error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
@@ -95,11 +95,11 @@ func NewInstance(cfg Config) (ri *Instance, err error) {
 		return
 	}
 
-	ri = &Instance{
+	inst = &Instance{
 		Cache: cfg.Cache,
 	}
 
-	node, err := hraft.NewRaft(raftCfg, ri, boltDB, boltDB, snapshots, transport)
+	node, err := hraft.NewRaft(raftCfg, inst, boltDB, boltDB, snapshots, transport)
 	if err != nil {
 		return
 	}
@@ -116,24 +116,24 @@ func NewInstance(cfg Config) (ri *Instance, err error) {
 		node.BootstrapCluster(clusterCfg)
 	}
 
-	ri.raft = node
+	inst.raft = node
 	return
 }
 
-func (ri *Instance) DiscoverLeader() (hraft.ServerAddress, hraft.ServerID) {
-	return ri.raft.LeaderWithID()
+func (inst *Instance) DiscoverLeader() (hraft.ServerAddress, hraft.ServerID) {
+	return inst.raft.LeaderWithID()
 }
 
-func (ri *Instance) Cap() int64 {
-	if !ri.isRaftLeader() {
-		return ri.cap.Load()
+func (inst *Instance) Cap() int64 {
+	if !inst.isRaftLeader() {
+		return inst.cap.Load()
 	}
 
-	return ri.Cache.Cap()
+	return int64(inst.Cache.Cap())
 }
 
-func (ri *Instance) Set(key string, value []byte, ttl time.Duration) (bool, error) {
-	if !ri.isRaftLeader() {
+func (inst *Instance) Set(key string, value []byte, ttl time.Duration) (bool, error) {
+	if !inst.isRaftLeader() {
 		telemetry.Log().Warnf("Calling Set on follower")
 		return false, ErrNotRaftLeader
 	}
@@ -148,7 +148,7 @@ func (ri *Instance) Set(key string, value []byte, ttl time.Duration) (bool, erro
 		event.Expiry = time.Now().Add(ttl)
 	}
 
-	res, err := ri.replicateAndApplyOnQuorum(event)
+	res, err := inst.replicateAndApplyOnQuorum(event)
 	if err == nil {
 		telemetry.Log().Debugf("Succesfully replicate and apply event: %+v", event)
 		return res.(bool), nil
@@ -157,8 +157,8 @@ func (ri *Instance) Set(key string, value []byte, ttl time.Duration) (bool, erro
 	return false, err
 }
 
-func (ri *Instance) Update(key string, value []byte) (bool, error) {
-	if !ri.isRaftLeader() {
+func (inst *Instance) Update(key string, value []byte) (bool, error) {
+	if !inst.isRaftLeader() {
 		telemetry.Log().Errorf("Calling Update on follower")
 		return false, ErrNotRaftLeader
 	}
@@ -169,7 +169,7 @@ func (ri *Instance) Update(key string, value []byte) (bool, error) {
 		Bvalue: value,
 	}
 
-	res, err := ri.replicateAndApplyOnQuorum(event)
+	res, err := inst.replicateAndApplyOnQuorum(event)
 	if err == nil {
 		telemetry.Log().Debugf("Succesfully replicate and apply event: %+v", event)
 		return res.(bool), nil
@@ -178,8 +178,8 @@ func (ri *Instance) Update(key string, value []byte) (bool, error) {
 	return false, err
 }
 
-func (ri *Instance) Delete(key string) (bool, error) {
-	if !ri.isRaftLeader() {
+func (inst *Instance) Delete(key string) (bool, error) {
+	if !inst.isRaftLeader() {
 		telemetry.Log().Errorf("Calling Delete on follower")
 		return false, ErrNotRaftLeader
 	}
@@ -189,7 +189,7 @@ func (ri *Instance) Delete(key string) (bool, error) {
 		Key: key,
 	}
 
-	res, err := ri.replicateAndApplyOnQuorum(event)
+	res, err := inst.replicateAndApplyOnQuorum(event)
 	if err == nil {
 		telemetry.Log().Debugf("Succesfully replicate and apply event: %+v", event)
 		return res.(bool), nil
@@ -198,8 +198,8 @@ func (ri *Instance) Delete(key string) (bool, error) {
 	return false, err
 }
 
-func (ri *Instance) Purge() error {
-	if !ri.isRaftLeader() {
+func (inst *Instance) Purge() error {
+	if !inst.isRaftLeader() {
 		telemetry.Log().Errorf("Calling Purge on follower")
 		return ErrNotRaftLeader
 	}
@@ -208,7 +208,7 @@ func (ri *Instance) Purge() error {
 		Op: "purge",
 	}
 
-	_, err := ri.replicateAndApplyOnQuorum(event)
+	_, err := inst.replicateAndApplyOnQuorum(event)
 	if err == nil {
 		telemetry.Log().Debugf("Succesfully replicate and apply event: %+v", event)
 	}
@@ -216,8 +216,8 @@ func (ri *Instance) Purge() error {
 	return err
 }
 
-func (ri *Instance) Resize(cap int64) error {
-	if !ri.isRaftLeader() {
+func (inst *Instance) Resize(cap int64) error {
+	if !inst.isRaftLeader() {
 		telemetry.Log().Errorf("Calling Resize on follower")
 		return ErrNotRaftLeader
 	}
@@ -227,7 +227,7 @@ func (ri *Instance) Resize(cap int64) error {
 		Ivalue: cap,
 	}
 
-	_, err := ri.replicateAndApplyOnQuorum(event)
+	_, err := inst.replicateAndApplyOnQuorum(event)
 	if err == nil {
 		telemetry.Log().Debugf("Succesfully replicate and apply event: %+v", event)
 	}
@@ -236,10 +236,10 @@ func (ri *Instance) Resize(cap int64) error {
 }
 
 // Apply applies an event from the log to the finite state machine and is called once a log entry is committed by a quorum of the cluster
-func (ri *Instance) Apply(l *hraft.Log) interface{} {
+func (inst *Instance) Apply(l *hraft.Log) interface{} {
 	var event Event
 	if err := json.Unmarshal(l.Data, &event); err != nil {
-		// need to exit and recover here so the ri get a chance to reapply the event
+		// need to exit and recover here so the inst get a chance to reapply the event
 		telemetry.Log().Fatalf("Failed to unmarshal an event from the event log: %v", err)
 	}
 
@@ -254,16 +254,16 @@ func (ri *Instance) Apply(l *hraft.Log) interface{} {
 			ttl = time.Until(event.Expiry)
 		}
 
-		return ri.Cache.Set(event.Key, event.Bvalue, ttl)
+		return inst.Cache.Set(event.Key, event.Bvalue, ttl)
 
 	case "update":
-		return ri.Cache.Update(event.Key, event.Bvalue)
+		return inst.Cache.Update(event.Key, event.Bvalue)
 
 	case "delete":
-		return ri.Cache.Delete(event.Key)
+		return inst.Cache.Delete(event.Key)
 
 	case "purge":
-		ri.Cache.Purge()
+		inst.Cache.Purge()
 		return nil
 
 	case "resize":
@@ -271,10 +271,10 @@ func (ri *Instance) Apply(l *hraft.Log) interface{} {
 		if cap <= 0 {
 			cap = -1
 		}
-		ri.cap.Store(cap)
+		inst.cap.Store(cap)
 		// disable eviction on replicas, but still store the current cap to restore when become leader
-		if ri.isRaftLeader() {
-			ri.Cache.Resize(cap)
+		if inst.isRaftLeader() {
+			inst.Cache.Resize(int(cap))
 		}
 
 		return nil
@@ -284,13 +284,13 @@ func (ri *Instance) Apply(l *hraft.Log) interface{} {
 	}
 }
 
-func (ri *Instance) Join(addr, nodeID string) error {
+func (inst *Instance) Join(addr, nodeID string) error {
 	telemetry.Log().Infof("Received join request from node %s at %s", nodeID, addr)
-	if !ri.isRaftLeader() {
+	if !inst.isRaftLeader() {
 		telemetry.Log().Errorf("Calling Join on follower")
 		return ErrNotRaftLeader
 	}
-	configFuture := ri.raft.GetConfiguration()
+	configFuture := inst.raft.GetConfiguration()
 	if err := configFuture.Error(); err != nil {
 		telemetry.Log().Errorf("Failed to get raft configuration: %v", err)
 		return err
@@ -303,7 +303,7 @@ func (ri *Instance) Join(addr, nodeID string) error {
 				return nil
 			}
 
-			future := ri.raft.RemoveServer(srv.ID, 0, ConfigChangeTimeOut)
+			future := inst.raft.RemoveServer(srv.ID, 0, ConfigChangeTimeOut)
 			if err := future.Error(); err != nil {
 				telemetry.Log().Errorf("Failed to remove existing node %s at %s: %v", nodeID, addr, err)
 				return err
@@ -311,7 +311,7 @@ func (ri *Instance) Join(addr, nodeID string) error {
 		}
 	}
 
-	future := ri.raft.AddVoter(hraft.ServerID(nodeID), hraft.ServerAddress(addr), 0, ConfigChangeTimeOut)
+	future := inst.raft.AddVoter(hraft.ServerID(nodeID), hraft.ServerAddress(addr), 0, ConfigChangeTimeOut)
 	if err := future.Error(); err != nil {
 		telemetry.Log().Errorf("Failed to join node %s at %s: %v", nodeID, addr, err)
 		return err
@@ -321,36 +321,36 @@ func (ri *Instance) Join(addr, nodeID string) error {
 	return nil
 }
 
-func (ri *Instance) Snapshot() (hraft.FSMSnapshot, error) {
-	return &Snapshot{memory: ri.Entries()}, nil
+func (inst *Instance) Snapshot() (hraft.FSMSnapshot, error) {
+	return &Snapshot{memory: inst.Entries()}, nil
 }
 
-func (ri *Instance) Restore(rc io.ReadCloser) error {
+func (inst *Instance) Restore(rc io.ReadCloser) error {
 	snapshot := make([]cache.Entry, 0)
 	if err := json.NewDecoder(rc).Decode(&snapshot); err != nil {
 		return err
 	}
 
-	ri.Cache.Recover(snapshot)
+	inst.Cache.Recover(snapshot)
 	return nil
 }
 
-// replicateAndApplyOnQuorum replicates an event to followers and applies the event to the ri if it is commited by a quorum of the cluster
-func (ri *Instance) replicateAndApplyOnQuorum(event Event) (interface{}, error) {
+// replicateAndApplyOnQuorum replicates an event to followers and applies the event to the inst if it is commited by a quorum of the cluster
+func (inst *Instance) replicateAndApplyOnQuorum(event Event) (interface{}, error) {
 	b, err := json.Marshal(event)
 	if err != nil {
 		return nil, err
 	}
 
-	future := ri.raft.Apply(b, RaftTimeOut)
+	future := inst.raft.Apply(b, RaftTimeOut)
 	if err := future.Error(); err != nil {
-		telemetry.Log().Errorf("Encountered an error during Raft operation: %v", err)
+		telemetry.Log().Errorf("Encountered an error duinstng Raft operation: %v", err)
 		return nil, err
 	}
 
 	return future.Response(), nil
 }
 
-func (ri *Instance) isRaftLeader() bool {
-	return ri.raft.State() == hraft.Leader
+func (inst *Instance) isRaftLeader() bool {
+	return inst.raft.State() == hraft.Leader
 }

@@ -23,7 +23,7 @@ import (
 var (
 	grpcAddr, RaftBindAddr, RaftDir, FQDN, ID string
 	BootstrapCluster                          bool
-	Capacity                                  int64
+	Capacity                                  int
 )
 
 func init() {
@@ -47,7 +47,7 @@ func init() {
 	flag.StringVar(&ID, "id", ordinal, "Raft node ID")
 	flag.StringVar(&FQDN, "fqdn", fqdn, "Raft cluster address")
 	flag.BoolVar(&BootstrapCluster, "bootstrap", ordinal == "0", "Bootstrap cluster flag")
-	flag.Int64Var(&Capacity, "cap", 1000, "Capacity of the cache")
+	flag.IntVar(&Capacity, "cap", 1000, "Capacity of the cache")
 }
 
 func main() {

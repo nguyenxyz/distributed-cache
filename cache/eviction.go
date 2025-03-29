@@ -53,8 +53,6 @@ type LRU struct {
 	keyToNode map[string]*list.Element
 
 	list *list.List
-
-	mu sync.RWMutex
 }
 
 func NewLRUPolicy() EvictionPolicy {
@@ -65,9 +63,6 @@ func NewLRUPolicy() EvictionPolicy {
 }
 
 func (lru *LRU) Register(op Operation, key string) (err error) {
-	lru.mu.Lock()
-	defer lru.mu.Unlock()
-
 	switch op {
 	case Get, Update:
 		node, ok := lru.keyToNode[key]
@@ -104,9 +99,6 @@ func (lru *LRU) Register(op Operation, key string) (err error) {
 }
 
 func (lru *LRU) Next() (key string, ok bool) {
-	lru.mu.RLock()
-	defer lru.mu.RUnlock()
-
 	if node := lru.list.Back(); node != nil {
 		return node.Value.(string), true
 	}
@@ -115,9 +107,6 @@ func (lru *LRU) Next() (key string, ok bool) {
 }
 
 func (lru *LRU) Reset() {
-	lru.mu.Lock()
-	defer lru.mu.Unlock()
-
 	lru.keyToNode = make(map[string]*list.Element)
 	lru.list.Init()
 }
@@ -145,9 +134,6 @@ type KeyFrequencyPair struct {
 }
 
 func (lfu *LFU) Register(op Operation, key string) (err error) {
-	lfu.mu.Lock()
-	defer lfu.mu.Unlock()
-
 	switch op {
 	case Get, Update:
 		node, ok := lfu.keyToNode[key]
@@ -239,9 +225,6 @@ func (lfu *LFU) updateMinFrequency() {
 }
 
 func (lfu *LFU) Next() (key string, ok bool) {
-	lfu.mu.RLock()
-	defer lfu.mu.RUnlock()
-
 	if len(lfu.keyToNode) == 0 || lfu.minFreq == 0 {
 		return "", false
 	}
@@ -263,10 +246,7 @@ func (lfu *LFU) Next() (key string, ok bool) {
 }
 
 func (lfu *LFU) Reset() {
-	lfu.mu.Lock()
-	defer lfu.mu.Unlock()
-
-	lfu.keyToFreq = make(map[string]*list.Element)
+	lfu.keyToNode = make(map[string]*list.Element)
 	lfu.freqBucket = make(map[int]*list.List)
 	lfu.minFreq = 0
 }

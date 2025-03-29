@@ -3,7 +3,6 @@ package cache
 import (
 	"context"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -33,13 +32,13 @@ type Cache interface {
 	Entries() []Entry
 
 	// Size returns the number of entries in the cache
-	Size() int64
+	Size() int
 
 	// Cap returns the current capacity of the cache
-	Cap() int64
+	Cap() int
 
 	// Resize resizes the cache with the provided capacity, overflowing entries will be evicted
-	Resize(cap int64)
+	Resize(cap int)
 
 	// Recover recovers the cache from the given slice of entries, discards all previous entries
 	Recover([]Entry)
@@ -77,21 +76,21 @@ type (
 
 	// Unix time bucket is used by garbage collector to manage expirable keys
 	UnixTimeBucket struct {
-		m sync.Map
+		timeToBucket sync.Map
 	}
 )
 
 var _ Cache = (*MemoryCache)(nil)
 
 type MemoryCache struct {
-	// The underlying kv map
-	kvmap sync.Map
+	// Mutex to protect the cache for concurrent access
+	mu sync.RWMutex
 
-	// The current size of the cache
-	size atomic.Int64
+	// The underlying kv map
+	kv map[string]Item
 
 	// Optional: Capacity of the cache
-	cap atomic.Int64
+	cap int
 
 	// Optional: Eviction policy for the cache
 	evictPolicy EvictionPolicy
@@ -104,10 +103,16 @@ type MemoryCache struct {
 }
 
 func NewMemoryCache(ctx context.Context, options ...Option) Cache {
-	cache := &MemoryCache{}
-	cache.cap.Store(-1)
+	cache := &MemoryCache{
+		kv:  make(map[string]Item),
+		cap: -1,
+	}
 	for _, opt := range options {
 		opt(cache)
+	}
+
+	if cache.evictPolicy == nil {
+		cache.evictPolicy = NewLRUPolicy()
 	}
 
 	cache.runGarbageCollection(ctx)
@@ -115,40 +120,48 @@ func NewMemoryCache(ctx context.Context, options ...Option) Cache {
 }
 
 func (memc *MemoryCache) Get(key string) (Entry, bool) {
-	if v, ok := memc.kvmap.Load(key); ok {
+	memc.mu.RLock()
+	defer memc.mu.RUnlock()
+
+	if item, ok := memc.kv[key]; ok {
 		memc.evictPolicy.Register(Get, key)
-		return v.(Item), true
+		return item, true
 	}
 
 	return Item{}, false
 }
 
 func (memc *MemoryCache) Set(key string, value []byte, ttl time.Duration) bool {
-	memc.Delete(key)
+	memc.mu.Lock()
+	defer memc.mu.Unlock()
+
 	now := time.Now()
 	var expiry time.Time
 	if ttl > 0 {
 		expiry = now.Add(ttl)
 	}
 
-	_, loaded := memc.kvmap.LoadOrStore(key, Item{
+	deleted := memc.deleteInternal(key)
+	memc.kv[key] = Item{
 		key:          key,
 		value:        value,
 		lastUpdated:  now,
 		creationTime: now,
 		expiryTime:   expiry,
-	})
-	if !loaded {
-		memc.evictPolicy.Register(Set, key)
-		memc.size.Add(1)
-		if !expiry.IsZero() {
-			memc.unixTimeBucket.Add(expiry, key)
-		}
 	}
 
-	// start eviction if cache exceeds capacity
+	memc.evictPolicy.Register(Set, key)
+	if !expiry.IsZero() {
+		memc.unixTimeBucket.AddKeyToBucket(expiry, key)
+	}
+
+	memc.evictIfNeeded()
+	return !deleted
+}
+
+func (memc *MemoryCache) evictIfNeeded() {
 	shouldEvict := func() bool {
-		size, cap := memc.Size(), memc.Cap()
+		size, cap := len(memc.kv), memc.cap
 		return cap > 0 && size > cap
 	}
 
@@ -161,26 +174,26 @@ func (memc *MemoryCache) Set(key string, value []byte, ttl time.Duration) bool {
 			break
 		}
 
-		memc.Delete(evictKey)
+		memc.deleteInternal(evictKey)
 		if memc.onEvict != nil {
 			memc.onEvict(evictKey)
 		}
 	}
-
-	return !loaded
 }
 
 func (memc *MemoryCache) Update(key string, value []byte) bool {
-	if v, ok := memc.kvmap.Load(key); ok {
-		old := v.(Item)
-		memc.kvmap.Store(key, Item{
+	memc.mu.Lock()
+	defer memc.mu.Unlock()
+
+	if stale, ok := memc.kv[key]; ok {
+		memc.kv[key] = Item{
 			key:          key,
 			value:        value,
 			lastUpdated:  time.Now(),
-			creationTime: old.CreationTime(),
-			expiryTime:   old.ExpiryTime(),
-			metadata:     old.Metadata(),
-		})
+			creationTime: stale.CreationTime(),
+			expiryTime:   stale.ExpiryTime(),
+			metadata:     stale.Metadata(),
+		}
 		memc.evictPolicy.Register(Update, key)
 		return true
 	}
@@ -189,13 +202,18 @@ func (memc *MemoryCache) Update(key string, value []byte) bool {
 }
 
 func (memc *MemoryCache) Delete(key string) bool {
-	if v, ok := memc.kvmap.LoadAndDelete(key); ok {
-		old := v.(Item)
-		if expiry := old.ExpiryTime(); !expiry.IsZero() {
-			memc.unixTimeBucket.Remove(expiry, key)
+	memc.mu.Lock()
+	defer memc.mu.Unlock()
+	return memc.deleteInternal(key)
+}
+
+func (memc *MemoryCache) deleteInternal(key string) bool {
+	if item, ok := memc.kv[key]; ok {
+		if expiry := item.ExpiryTime(); !expiry.IsZero() {
+			memc.unixTimeBucket.RemoveKeyFromBucket(expiry, key)
 		}
+		delete(memc.kv, key)
 		memc.evictPolicy.Register(Delete, key)
-		memc.size.Add(-1)
 		return true
 	}
 
@@ -203,67 +221,81 @@ func (memc *MemoryCache) Delete(key string) bool {
 }
 
 func (memc *MemoryCache) Purge() {
-	memc.kvmap.Clear()
+	memc.mu.Lock()
+	defer memc.mu.Unlock()
+
+	memc.kv = make(map[string]Item)
 	memc.evictPolicy.Reset()
-	memc.size.Store(0)
 	memc.unixTimeBucket.Clear()
 }
 
 func (memc *MemoryCache) Peek(key string) (Entry, bool) {
-	if v, ok := memc.kvmap.Load(key); ok {
-		return v.(Item), true
+	memc.mu.RLock()
+	defer memc.mu.RUnlock()
+
+	if item, ok := memc.kv[key]; ok {
+		return item, true
 	}
 
 	return Item{}, false
 }
 
 func (memc *MemoryCache) Keys() []string {
-	keys := make([]string, 0, memc.Size())
-	memc.kvmap.Range(func(k, v interface{}) bool {
-		keys = append(keys, k.(string))
-		return true
-	})
+	memc.mu.RLock()
+	defer memc.mu.RUnlock()
+
+	keys := make([]string, 0, len(memc.kv))
+	for key := range memc.kv {
+		keys = append(keys, key)
+	}
 	return keys
 }
 
 func (memc *MemoryCache) Entries() []Entry {
-	entries := make([]Entry, 0, memc.Size())
-	memc.kvmap.Range(func(k, v interface{}) bool {
-		entries = append(entries, v.(Item))
-		return true
-	})
+	memc.mu.RLock()
+	defer memc.mu.RUnlock()
+
+	entries := make([]Entry, 0, len(memc.kv))
+	for _, entry := range memc.kv {
+		entries = append(entries, entry)
+	}
 	return entries
 }
 
-func (memc *MemoryCache) Size() int64 {
-	return memc.size.Load()
+func (memc *MemoryCache) Size() int {
+	memc.mu.RLock()
+	defer memc.mu.RUnlock()
+	return len(memc.kv)
 }
 
-func (memc *MemoryCache) Cap() int64 {
-	return memc.cap.Load()
+func (memc *MemoryCache) Cap() int {
+	memc.mu.RLock()
+	defer memc.mu.RUnlock()
+	return memc.cap
 }
 
-func (memc *MemoryCache) Resize(cap int64) {
-	if cap <= 0 {
-		cap = -1
-	}
-	memc.cap.Store(cap)
+func (memc *MemoryCache) Resize(cap int) {
+	memc.mu.Lock()
+	defer memc.mu.Unlock()
+	memc.cap = cap
 }
 
 func (memc *MemoryCache) Recover(entries []Entry) {
 	memc.Purge()
-	for _, entry := range entries[:min(int64(len(entries)), memc.Cap())] {
+	memc.mu.Lock()
+	defer memc.mu.Unlock()
+	for _, entry := range entries[:min(len(entries), memc.cap)] {
 		if entry.TTL() != 0 {
-			memc.kvmap.Store(entry.Key(), Item{
+			memc.kv[entry.Key()] = Item{
 				key:          entry.Key(),
 				value:        entry.Value(),
 				lastUpdated:  entry.LastUpdated(),
 				creationTime: entry.CreationTime(),
 				expiryTime:   entry.ExpiryTime(),
 				metadata:     entry.Metadata(),
-			})
+			}
 			memc.evictPolicy.Register(Set, entry.Key())
-			memc.unixTimeBucket.Add(entry.ExpiryTime(), entry.Key())
+			memc.unixTimeBucket.AddKeyToBucket(entry.ExpiryTime(), entry.Key())
 		}
 	}
 }
@@ -278,7 +310,7 @@ func (memc *MemoryCache) runGarbageCollection(ctx context.Context) {
 				return
 
 			case <-ticker.C:
-				memc.unixTimeBucket.Prune(time.Now().Add(time.Second), func(k, v interface{}) bool {
+				memc.unixTimeBucket.PruneBucket(time.Now().Add(time.Second), func(k, v interface{}) bool {
 					go memc.Delete(k.(string))
 					return true
 				})
@@ -287,10 +319,10 @@ func (memc *MemoryCache) runGarbageCollection(ctx context.Context) {
 	}()
 }
 
-func WithCapacity(cap int64) Option {
+func WithCapacity(cap int) Option {
 	return func(memc *MemoryCache) {
 		if cap > 0 {
-			memc.cap.Store(cap)
+			memc.cap = cap
 		}
 	}
 }
@@ -307,25 +339,25 @@ func WithEvictionPolicy(policy EvictionPolicy) Option {
 	}
 }
 
-func (utb *UnixTimeBucket) Remove(timepoint time.Time, key string) {
-	if expiryMap, ok := utb.m.Load(timepoint.Unix()); ok {
+func (utb *UnixTimeBucket) RemoveKeyFromBucket(timepoint time.Time, key string) {
+	if expiryMap, ok := utb.timeToBucket.Load(timepoint.Unix()); ok {
 		expiryMap.(*sync.Map).Delete(key)
 	}
 }
 
-func (utb *UnixTimeBucket) Add(timepoint time.Time, key string) {
-	expiryMap, _ := utb.m.LoadOrStore(timepoint.Unix(), new(sync.Map))
+func (utb *UnixTimeBucket) AddKeyToBucket(timepoint time.Time, key string) {
+	expiryMap, _ := utb.timeToBucket.LoadOrStore(timepoint.Unix(), new(sync.Map))
 	expiryMap.(*sync.Map).Store(key, struct{}{})
 }
 
-func (utb *UnixTimeBucket) Prune(timepoint time.Time, callback func(k, v interface{}) bool) {
-	if expiryMap, ok := utb.m.LoadAndDelete(timepoint.Unix()); ok {
+func (utb *UnixTimeBucket) PruneBucket(timepoint time.Time, callback func(k, v interface{}) bool) {
+	if expiryMap, ok := utb.timeToBucket.LoadAndDelete(timepoint.Unix()); ok {
 		expiryMap.(*sync.Map).Range(callback)
 	}
 }
 
 func (utb *UnixTimeBucket) Clear() {
-	utb.m.Clear()
+	utb.timeToBucket.Clear()
 }
 
 var _ Entry = (*Item)(nil)
