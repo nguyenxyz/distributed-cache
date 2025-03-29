@@ -4,14 +4,15 @@ import (
 	"container/list"
 	"errors"
 	"fmt"
+	"math"
 	"sync"
 )
 
-var (
-	ErrKeyNotFound          = errors.New("key not found for Get/Update/Delete operation")
-	ErrKeyAlreadyExists     = errors.New("key already exists and can not be re-registered with Set operation")
-	ErrUnsupportedOperation = errors.New("unsupported operation")
-)
+type EvictionPolicy interface {
+	Register(Operation, string) error
+	Next() (string, bool)
+	Reset()
+}
 
 // Operation is used to register an operation with the eviction policy
 type Operation int16
@@ -42,11 +43,11 @@ func (op Operation) String() string {
 	}
 }
 
-type EvictionPolicy interface {
-	Register(Operation, string) error
-	Next() (string, bool)
-	Reset()
-}
+var (
+	ErrPolicyKeyNotFound          = errors.New("key not found")
+	ErrPolicyKeyAlreadyExists     = errors.New("key already exists")
+	ErrPolicyUnsupportedOperation = errors.New("unsupported operation")
+)
 
 type LRU struct {
 	keyToNode map[string]*list.Element
@@ -71,7 +72,7 @@ func (lru *LRU) Register(op Operation, key string) (err error) {
 	case Get, Update:
 		node, ok := lru.keyToNode[key]
 		if !ok {
-			err = ErrKeyNotFound
+			err = ErrPolicyKeyNotFound
 			return
 		}
 
@@ -79,7 +80,7 @@ func (lru *LRU) Register(op Operation, key string) (err error) {
 
 	case Set:
 		if _, ok := lru.keyToNode[key]; ok {
-			err = ErrKeyAlreadyExists
+			err = ErrPolicyKeyAlreadyExists
 			return
 		}
 
@@ -88,7 +89,7 @@ func (lru *LRU) Register(op Operation, key string) (err error) {
 	case Delete:
 		node, ok := lru.keyToNode[key]
 		if !ok {
-			err = ErrKeyNotFound
+			err = ErrPolicyKeyNotFound
 			return
 		}
 
@@ -96,7 +97,7 @@ func (lru *LRU) Register(op Operation, key string) (err error) {
 		delete(lru.keyToNode, key)
 
 	default:
-		err = fmt.Errorf("%w: %v", ErrUnsupportedOperation, op)
+		err = fmt.Errorf("%w: %v", ErrPolicyUnsupportedOperation, op)
 	}
 
 	return err
@@ -121,10 +122,151 @@ func (lru *LRU) Reset() {
 	lru.list.Init()
 }
 
-type LFU struct{}
+type LFU struct {
+	keyToNode map[string]*list.Element
 
-func (lfu *LFU) Register(op Operation, key string) {}
+	freqBucket map[int]*list.List
 
-func (lfu *LFU) Next() string { return "HAHA" }
+	minFreq int
 
-func (lfu *LFU) Reset() {}
+	mu sync.RWMutex
+}
+
+func NewLFUPolicy() EvictionPolicy {
+	return &LFU{
+		keyToNode:  make(map[string]*list.Element),
+		freqBucket: make(map[int]*list.List),
+	}
+}
+
+type KeyFrequencyPair struct {
+	key  string
+	freq int
+}
+
+func (lfu *LFU) Register(op Operation, key string) (err error) {
+	lfu.mu.Lock()
+	defer lfu.mu.Unlock()
+
+	switch op {
+	case Get, Update:
+		node, ok := lfu.keyToNode[key]
+		if !ok {
+			err = ErrPolicyKeyNotFound
+			return
+		}
+
+		staleFreq, _ := lfu.removeStaleKeyFromFrequencyBucket(node)
+		newFreq := staleFreq + 1
+		if _, ok := lfu.freqBucket[newFreq]; !ok {
+			lfu.freqBucket[newFreq] = list.New()
+		}
+
+		lfu.keyToNode[key] = lfu.freqBucket[newFreq].PushFront(KeyFrequencyPair{
+			key:  key,
+			freq: newFreq,
+		})
+
+		if lfu.freqBucket[staleFreq].Len() == 0 && staleFreq == lfu.minFreq {
+			delete(lfu.freqBucket, staleFreq)
+			lfu.minFreq++
+		}
+
+	case Set:
+		if _, ok := lfu.keyToNode[key]; ok {
+			err = ErrPolicyKeyAlreadyExists
+			return
+		}
+
+		if _, ok := lfu.freqBucket[1]; !ok {
+			lfu.freqBucket[1] = list.New()
+		}
+
+		lfu.keyToNode[key] = lfu.freqBucket[1].PushFront(KeyFrequencyPair{
+			key:  key,
+			freq: 1,
+		})
+		lfu.minFreq = 1
+
+	case Delete:
+		node, ok := lfu.keyToNode[key]
+		if !ok {
+			err = ErrPolicyKeyNotFound
+			return
+		}
+
+		delete(lfu.keyToNode, key)
+		staleFreq, _ := lfu.removeStaleKeyFromFrequencyBucket(node)
+		if lfu.freqBucket[staleFreq].Len() == 0 && staleFreq == lfu.minFreq {
+			delete(lfu.freqBucket, staleFreq)
+			lfu.updateMinFrequency()
+		}
+
+	default:
+		err = fmt.Errorf("%w: %v", ErrPolicyUnsupportedOperation, op)
+
+	}
+
+	return err
+}
+
+func (lfu *LFU) removeStaleKeyFromFrequencyBucket(node *list.Element) (freq int, ok bool) {
+	if node == nil {
+		return
+	}
+
+	freq = node.Value.(KeyFrequencyPair).freq
+	if lfu.freqBucket[freq] != nil {
+		lfu.freqBucket[freq].Remove(node)
+	}
+
+	return freq, true
+}
+
+func (lfu *LFU) updateMinFrequency() {
+	if len(lfu.freqBucket) == 0 {
+		lfu.minFreq = 0
+		return
+	}
+
+	min := math.MaxInt
+	for freq := range lfu.freqBucket {
+		if freq < min {
+			min = freq
+		}
+	}
+	lfu.minFreq = min
+}
+
+func (lfu *LFU) Next() (key string, ok bool) {
+	lfu.mu.RLock()
+	defer lfu.mu.RUnlock()
+
+	if len(lfu.keyToNode) == 0 || lfu.minFreq == 0 {
+		return "", false
+	}
+
+	bucket, ok := lfu.freqBucket[lfu.minFreq]
+	if !ok {
+		// This should never happen if minFreq is correct.
+		return "", false
+	}
+
+	node := bucket.Back()
+	if node == nil {
+		// This should never happen if bucket exists
+		return "", false
+	}
+
+	pair := node.Value.(KeyFrequencyPair)
+	return pair.key, true
+}
+
+func (lfu *LFU) Reset() {
+	lfu.mu.Lock()
+	defer lfu.mu.Unlock()
+
+	lfu.keyToFreq = make(map[string]*list.Element)
+	lfu.freqBucket = make(map[int]*list.List)
+	lfu.minFreq = 0
+}
