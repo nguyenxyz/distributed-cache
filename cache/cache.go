@@ -79,17 +79,6 @@ type (
 	UnixTimeBucket struct {
 		m sync.Map
 	}
-
-	// Operation is used to register an operation with the eviction policy
-	Operation int16
-)
-
-const (
-	Get Operation = iota
-	Set
-	Update
-	Delete
-	Purge
 )
 
 var _ Cache = (*MemoryCache)(nil)
@@ -114,7 +103,7 @@ type MemoryCache struct {
 	onEvict EvictionCallBack
 }
 
-func NewMemoryCache(ctx context.Context, options ...Option) *MemoryCache {
+func NewMemoryCache(ctx context.Context, options ...Option) Cache {
 	cache := &MemoryCache{}
 	cache.cap.Store(-1)
 	for _, opt := range options {
@@ -164,7 +153,14 @@ func (memc *MemoryCache) Set(key string, value []byte, ttl time.Duration) bool {
 	}
 
 	for shouldEvict() {
-		evictKey := memc.evictPolicy.Next()
+		evictKey, ok := memc.evictPolicy.Next()
+		if !ok {
+			// Cache is over capacity, but the eviction policy has no keys to evict.
+			// This might indicate an inconsistency between the cache's size
+			// tracking and the policy's tracked keys.
+			break
+		}
+
 		memc.Delete(evictKey)
 		if memc.onEvict != nil {
 			memc.onEvict(evictKey)
@@ -172,7 +168,6 @@ func (memc *MemoryCache) Set(key string, value []byte, ttl time.Duration) bool {
 	}
 
 	return !loaded
-
 }
 
 func (memc *MemoryCache) Update(key string, value []byte) bool {
