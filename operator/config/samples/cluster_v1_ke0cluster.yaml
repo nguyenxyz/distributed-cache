@@ -1,0 +1,9 @@
+apiVersion: cluster.ke0.com/v1
+kind: Ke0Cluster
+metadata:
+  labels:
+    app.kubernetes.io/name: operator
+    app.kubernetes.io/managed-by: kustomize
+  name: ke0cluster-sample
+spec:
+  # TODO(user): Add fields here
