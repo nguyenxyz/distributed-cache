@@ -1,7 +1,8 @@
 ## High Level Design
 
 
-![cluster (4)](https://github.com/user-attachments/assets/66198e5e-a175-40d1-8b59-1b439eaed0e6)
+![cluster (5)](https://github.com/user-attachments/assets/3bcc51b8-daba-416c-8e24-cadf332b132b)
+
 
 
 ## Challenges during implementation:
