@@ -63,7 +63,7 @@ func main() {
 		go raftInstance.Delete(key)
 	}
 
-	lru := cache.NewMemoryCache(ctx, cache.WithCapacity(Capacity), cache.WithEvictionCallback(onEvict), cache.WithEvictionPolicy(&cache.LRU{}))
+	lru := cache.NewMemoryCache(ctx, cache.WithCapacity(Capacity), cache.WithEvictionCallback(onEvict), cache.WithEvictionPolicy(cache.NewLRUPolicy()))
 	raftInstance, err := raft.NewInstance(raft.Config{
 		Cache:            lru,
 		RaftBindAddr:     RaftBindAddr,
