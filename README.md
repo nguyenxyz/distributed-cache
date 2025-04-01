@@ -6,7 +6,7 @@
 
 ## Challenges during implementation:
 - Sync lru evictions
-  + Read requests on replicas will update their lru independently of one another and the master. When capacity is reached, every node will likely have different sets of evicted keys which leads to divergence
+  + Read requests on replicas will update their eviction policy independently of one another and the master. When capacity is reached, every node will likely have different sets of evicted keys which leads to divergence
   + One solution could be to disable eviction on replicas and sync evictions from the master with delete request to replicas. This also means that the lru property is only guaranteed when read is forwarded to the master. With that said, we can only provide an approximation of the lru property for performance and consistency reasons. However, arguably if reads for a key happen on both master and replica nodes, the key is a hot key, and since reads should be uniformly distributed on all nodes, this shouldn't be a problem as a hot key is very unlikely to be evicted by the master. Wrong evictions of cold keys shouldn't be a big problem if we can gain significant performance in return.
   + This also comes with some limitations.
     1. Read requests to replicas can return evicted entries due to delay. In any case, reads are eventually consistentent if enabled on replicas
