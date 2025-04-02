@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -47,11 +48,29 @@ type Ke0ClusterReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.4/pkg/reconcile
 func (r *Ke0ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = logf.FromContext(ctx)
+	log := logf.FromContext(ctx)
+	log.Info("Reconciling Ke0Cluster CRs")
 
-	// TODO(user): your logic here
+	ke0Cluster := &clusterv1.Ke0Cluster{}
+	err := r.Get(ctx, req.NamespacedName, ke0Cluster)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			log.Info("Ke0Cluster CR with this NamespacedName can not be found. This must be a DELETE event ")
+			return ctrl.Result{}, nil
+		}
+		log.Info("Failed to get Ke0Cluster CR. Requeue work item")
+		return ctrl.Result{}, err
+	}
+
+	if !r.checkPrequisites() {
+		log.Info("Prerequisites have not been fulfilled")
+	}
 
 	return ctrl.Result{}, nil
+}
+
+func (r *Ke0ClusterReconciler) checkPrequisites() bool {
+	return true
 }
 
 // SetupWithManager sets up the controller with the Manager.
