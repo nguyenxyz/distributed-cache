@@ -58,6 +58,7 @@ func (r *Ke0ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			log.Info("Ke0Cluster CR with this NamespacedName can not be found. This must be a DELETE event ")
 			return ctrl.Result{}, nil
 		}
+
 		log.Info("Failed to get Ke0Cluster CR. Requeue work item")
 		return ctrl.Result{}, err
 	}
