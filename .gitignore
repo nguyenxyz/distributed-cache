@@ -29,7 +29,6 @@ service.box.log
 *.pb.go
 *_grpc.pb.go
 
-*dockerfile
 .idea/
 
 
