@@ -1,12 +1,10 @@
 ## High Level Design
 
 
-![cluster (5)](https://github.com/user-attachments/assets/3bcc51b8-daba-416c-8e24-cadf332b132b)
-
 
 
 ## Challenges during implementation:
-- Sync lru evictions
+- Sync evictions
   + Read requests on replicas will update their eviction policy independently of one another and the master. When capacity is reached, every node will likely have different sets of evicted keys which leads to divergence
   + One solution could be to disable eviction on replicas and sync evictions from the master with delete request to replicas. This also means that the lru property is only guaranteed when read is forwarded to the master. With that said, we can only provide an approximation of the lru property for performance and consistency reasons. However, arguably if reads for a key happen on both master and replica nodes, the key is a hot key, and since reads should be uniformly distributed on all nodes, this shouldn't be a problem as a hot key is very unlikely to be evicted by the master. Wrong evictions of cold keys shouldn't be a big problem if we can gain significant performance in return.
   + This also comes with some limitations.
@@ -14,16 +12,6 @@
     2. Master won't know about key access statistics of replicas and so it won't be able update its lru accordingly which is very costly anyway
 
 
-## Planning:
-- Implement Kubernetes operator to manage cluster and facilitate rebalancing
-- Implement B-tree index for range querying
-- Implement watch API for subscribing to changes
-- Improve telemetry
-
 ## Demo:
 <img width="1091" alt="Screenshot 2024-05-20 at 5 44 54 PM" src="https://github.com/ph-ngn/nanobox/assets/93941060/85f627da-da26-49fc-822c-42e1221a2be3">
 <img width="972" alt="Screenshot 2024-05-20 at 5 45 40 PM" src="https://github.com/ph-ngn/nanobox/assets/93941060/277cb951-b641-420b-81d7-f0485265ab3a">
-
-
-
-  
