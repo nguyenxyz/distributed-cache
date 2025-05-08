@@ -68,3 +68,4 @@ dist-ssr
 *.swp
 *.swo
 *~
+.qodo
